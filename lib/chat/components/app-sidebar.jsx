@@ -183,7 +183,7 @@ export function AppSidebar({ user }) {
                   <GitPullRequestIcon size={16} />
                   {!collapsed && (
                     <span className="flex items-center gap-2">
-                      Pending Changes
+                      Approvals
                       {prCount > 0 && (
                         <span className="inline-flex items-center justify-center rounded-full bg-destructive px-1.5 py-0.5 text-[10px] font-medium leading-none text-destructive-foreground">
                           {prCount}
@@ -199,7 +199,7 @@ export function AppSidebar({ user }) {
                 </SidebarMenuButton>
               </TooltipTrigger>
               {collapsed && (
-                <TooltipContent side="right">Pending Changes</TooltipContent>
+                <TooltipContent side="right">Approvals</TooltipContent>
               )}
             </Tooltip>
           </SidebarMenuItem>
@@ -261,7 +261,7 @@ export function AppSidebar({ user }) {
 
       {!collapsed && (
         <SidebarContent>
-          <div className="mx-4 mb-1 border-t border-border" />
+          <div className="mx-4 mb-2 border-t border-border" />
           <SidebarHistory />
         </SidebarContent>
       )}

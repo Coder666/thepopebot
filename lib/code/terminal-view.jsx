@@ -6,13 +6,13 @@ import { FitAddon } from '@xterm/addon-fit';
 import { SearchAddon } from '@xterm/addon-search';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { SerializeAddon } from '@xterm/addon-serialize';
-import { ensureCodeWorkspaceContainer } from './actions.js';
 import '@xterm/xterm/css/xterm.css';
+import { SpinnerIcon } from '../chat/components/icons.js';
 
 const STATUS = { connected: '#22c55e', connecting: '#eab308', disconnected: '#ef4444' };
 const RECONNECT_INTERVAL = 3000;
 
-export default function TerminalView({ codeWorkspaceId }) {
+export default function TerminalView({ codeWorkspaceId, ensureContainer }) {
   const containerRef = useRef(null);
   const termRef = useRef(null);
   const fitAddonRef = useRef(null);
@@ -20,6 +20,7 @@ export default function TerminalView({ codeWorkspaceId }) {
   const retryTimer = useRef(null);
   const statusRef = useRef(null);
   const [connected, setConnected] = useState(false);
+  const [containerError, setContainerError] = useState(null);
 
   const setStatus = useCallback((color) => {
     if (statusRef.current) statusRef.current.style.backgroundColor = color;
@@ -111,7 +112,7 @@ export default function TerminalView({ codeWorkspaceId }) {
     term.open(containerRef.current);
 
     const style = document.createElement('style');
-    style.textContent = '.xterm, .xterm-viewport { background-color: #1a1b26 !important; }';
+    style.textContent = '.xterm { padding: 5px; background-color: #1a1b26 !important; } .xterm-viewport { background-color: #1a1b26 !important; }';
     containerRef.current.appendChild(style);
 
     fitAddon.fit();
@@ -134,8 +135,18 @@ export default function TerminalView({ codeWorkspaceId }) {
 
     (async () => {
       try {
-        await ensureCodeWorkspaceContainer(codeWorkspaceId);
-      } catch {}
+        const result = await ensureContainer(codeWorkspaceId);
+        if (result?.status === 'error') {
+          const msg = result.message || 'Unknown container error';
+          console.error('ensureContainer:', msg);
+          if (!cancelled) setContainerError(msg);
+          return;
+        }
+      } catch (err) {
+        console.error('ensureContainer:', err);
+        if (!cancelled) setContainerError(err.message || String(err));
+        return;
+      }
       if (!cancelled) connect();
     })();
 
@@ -149,10 +160,30 @@ export default function TerminalView({ codeWorkspaceId }) {
     };
   }, [connect, sendResize, codeWorkspaceId]);
 
+  const sendCommand = useCallback((text) => {
+    const ws = wsRef.current;
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send('0' + text + '\r');
+    }
+  }, []);
+
   const handleReconnect = async () => {
     clearTimeout(retryTimer.current);
     if (wsRef.current) wsRef.current.close();
-    try { await ensureCodeWorkspaceContainer(codeWorkspaceId); } catch {}
+    try {
+      setContainerError(null);
+      const result = await ensureContainer(codeWorkspaceId);
+      if (result?.status === 'error') {
+        const msg = result.message || 'Unknown container error';
+        console.error('ensureContainer:', msg);
+        setContainerError(msg);
+        return;
+      }
+    } catch (err) {
+      console.error('ensureContainer:', err);
+      setContainerError(err.message || String(err));
+      return;
+    }
     connect();
   };
 
@@ -210,13 +241,13 @@ export default function TerminalView({ codeWorkspaceId }) {
 
       <div style={{ position: 'relative', flex: 1, minHeight: 0 }}>
         <div ref={containerRef} className="mx-4" style={{ height: '100%', borderRadius: 6, overflow: 'hidden' }} />
-        {!connected && (
+        {(!connected || containerError) && (
           <div style={{
             position: 'absolute',
             top: '50%', left: '50%',
             transform: 'translate(-50%, -50%)',
-            background: '#1a1b26',
-            color: '#a9b1d6',
+            background: containerError ? 'rgba(255,235,235,0.95)' : '#1a1b26',
+            color: containerError ? '#991b1b' : '#a9b1d6',
             padding: '14px 28px',
             borderRadius: 8,
             fontSize: 13,
@@ -228,8 +259,13 @@ export default function TerminalView({ codeWorkspaceId }) {
             textAlign: 'center',
             maxWidth: 320,
             letterSpacing: '0.02em',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
           }}>
-            Loading...
+            {containerError
+              ? `Container error: ${containerError}`
+              : <><SpinnerIcon size={16} /> Loading...</>}
           </div>
         )}
       </div>
