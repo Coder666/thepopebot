@@ -260,10 +260,12 @@ export function AppSidebar({ user }) {
       </SidebarHeader>
 
       {!collapsed && (
-        <SidebarContent>
-          <div className="mx-4 mb-2 border-t border-border" />
-          <SidebarHistory />
-        </SidebarContent>
+        <>
+          <div className="mx-4 border-t border-border" />
+          <SidebarContent>
+            <SidebarHistory />
+          </SidebarContent>
+        </>
       )}
 
       {/* Spacer when collapsed to push footer down */}

@@ -49,7 +49,7 @@ function groupChatsByDate(chats) {
 const FILTERS = [
   { value: 'all', label: 'All', icon: null },
   { value: 'chat', label: 'Chat', icon: MessageIcon },
-  { value: 'code', label: 'Code', icon: CodeIcon },
+  ...(process.env.NEXT_PUBLIC_CODE_WORKSPACE ? [{ value: 'code', label: 'Code', icon: CodeIcon }] : []),
 ];
 
 function ChatTypeFilter({ filter, setFilter }) {
@@ -144,16 +144,22 @@ export function SidebarHistory() {
 
   if (loading && chats.length === 0) {
     return (
-      <SidebarGroup>
-        <SidebarGroupContent>
-          <ChatTypeFilter filter={filter} setFilter={updateFilter} />
-          <div className="flex flex-col gap-2 px-2">
-            {[...Array(5)].map((_, i) => (
-              <div key={i} className="h-8 animate-pulse rounded-md bg-border/50" />
-            ))}
-          </div>
-        </SidebarGroupContent>
-      </SidebarGroup>
+      <>
+        <SidebarGroup className="sticky top-0 z-10 bg-muted">
+          <SidebarGroupContent>
+            <ChatTypeFilter filter={filter} setFilter={updateFilter} />
+          </SidebarGroupContent>
+        </SidebarGroup>
+        <SidebarGroup>
+          <SidebarGroupContent>
+            <div className="flex flex-col gap-2 px-2">
+              {[...Array(5)].map((_, i) => (
+                <div key={i} className="h-8 animate-pulse rounded-md bg-border/50" />
+              ))}
+            </div>
+          </SidebarGroupContent>
+        </SidebarGroup>
+      </>
     );
   }
 
@@ -178,7 +184,7 @@ export function SidebarHistory() {
 
   return (
     <>
-      <SidebarGroup>
+      <SidebarGroup className="sticky top-0 z-10 bg-muted">
         <SidebarGroupContent>
           <ChatTypeFilter filter={filter} setFilter={updateFilter} />
         </SidebarGroupContent>

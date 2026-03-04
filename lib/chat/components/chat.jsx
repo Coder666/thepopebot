@@ -8,7 +8,7 @@ import { ChatInput } from './chat-input.js';
 import { ChatHeader } from './chat-header.js';
 import { Greeting } from './greeting.js';
 import { CodeModeToggle } from './code-mode-toggle.js';
-import { getRepositories, getBranches } from '../actions.js';
+import { getRepositories, getBranches, generateChatTitle } from '../actions.js';
 
 export function Chat({ chatId, initialMessages = [], workspace = null }) {
   const [input, setInput] = useState('');
@@ -56,8 +56,14 @@ export function Chat({ chatId, initialMessages = [], workspace = null }) {
       hasNavigated.current = true;
       window.history.replaceState({}, '', `/chat/${chatId}`);
       window.dispatchEvent(new Event('chatsupdated'));
-      // Dispatch again after delay to pick up async title update
-      setTimeout(() => window.dispatchEvent(new Event('chatsupdated')), 5000);
+
+      // Generate title — independent RPC, not tied to stream
+      const firstMsg = messages[0]?.parts?.find(p => p.type === 'text')?.text;
+      if (firstMsg) {
+        generateChatTitle(chatId, firstMsg).then(() => {
+          window.dispatchEvent(new Event('chatsupdated'));
+        });
+      }
     }
   }, [messages.length, status, chatId]);
 
@@ -176,21 +182,35 @@ export function Chat({ chatId, initialMessages = [], workspace = null }) {
               </div>
             </div>
           )}
-          <ChatInput
-            input={input}
-            setInput={setInput}
-            onSubmit={handleSend}
-            status={status}
-            stop={stop}
-            files={files}
-            setFiles={setFiles}
-            disabled={isWorkspaceLaunched}
-            placeholder={isWorkspaceLaunched ? 'Workspace launched — click the link above to start coding.' : 'Send a message...'}
-          />
-          {codeMode && (
-            <div className="mx-auto w-full max-w-4xl px-4 pb-8 md:px-6">
-              {codeModeToggle}
+          {codeMode ? (
+            <div className="mx-auto w-full max-w-4xl px-4 pb-4 md:px-6">
+              <div className="rounded-t-xl border border-b-0 border-border px-3 py-2.5">
+                {codeModeToggle}
+              </div>
+              <ChatInput
+                bare
+                input={input}
+                setInput={setInput}
+                onSubmit={handleSend}
+                status={status}
+                stop={stop}
+                files={files}
+                setFiles={setFiles}
+                disabled={isWorkspaceLaunched}
+                placeholder={isWorkspaceLaunched ? 'Workspace launched — click the link above to start coding.' : 'Send a message...'}
+                className="rounded-t-none"
+              />
             </div>
+          ) : (
+            <ChatInput
+              input={input}
+              setInput={setInput}
+              onSubmit={handleSend}
+              status={status}
+              stop={stop}
+              files={files}
+              setFiles={setFiles}
+            />
           )}
         </>
       )}

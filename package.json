@@ -20,6 +20,8 @@
     "./code": "./lib/code/index.js",
     "./code/actions": "./lib/code/actions.js",
     "./code/ws-proxy": "./lib/code/ws-proxy.js",
+    "./voice": "./lib/voice/index.js",
+    "./voice/actions": "./lib/voice/actions.js",
     "./auth/components": "./lib/auth/components/index.js",
     "./middleware": "./lib/auth/middleware.js",
     "./package.json": "./package.json"

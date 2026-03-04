@@ -75,24 +75,13 @@ export function CodeModeToggle({
 
   if (!process.env.NEXT_PUBLIC_CODE_WORKSPACE) return null;
 
-  // Locked mode: show as centered inline label
+  // Locked mode: show as branch bar
   if (locked && enabled) {
     return (
-      <div className="flex justify-center">
-        <div className="inline-flex items-center gap-2.5 text-sm text-muted-foreground">
-          {repo && (
-            <>
-              <GitBranchIcon size={14} />
-              <span>{repo}</span>
-            </>
-          )}
-          {branch && (
-            <>
-              <span className="opacity-40">·</span>
-              <span>{branch}</span>
-            </>
-          )}
-        </div>
+      <div className="flex items-center gap-2 text-sm text-muted-foreground min-w-0">
+        <GitBranchIcon size={14} className="shrink-0" />
+        {repo && <span className="shrink-0">{repo}</span>}
+        {branch && <span className="shrink-0 font-medium text-foreground">{branch}</span>}
       </div>
     );
   }

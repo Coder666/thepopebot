@@ -1,7 +1,9 @@
 'use client';
 
 import { useRef, useEffect, useCallback, useState } from 'react';
-import { SendIcon, StopIcon, PaperclipIcon, XIcon, FileTextIcon } from './icons.js';
+import { SendIcon, StopIcon, PaperclipIcon, XIcon, FileTextIcon, MicIcon } from './icons.js';
+import { useVoiceInput } from '../../voice/use-voice-input.js';
+import { getVoiceToken, isVoiceEnabled } from '../../voice/actions.js';
 import { cn } from '../utils.js';
 
 const ACCEPTED_TYPES = [
@@ -37,11 +39,40 @@ function getEffectiveType(file) {
   return extMap[ext] || file.type || 'text/plain';
 }
 
-export function ChatInput({ input, setInput, onSubmit, status, stop, files, setFiles, disabled = false, placeholder = 'Send a message...', canSendOverride }) {
+export function ChatInput({ input, setInput, onSubmit, status, stop, files, setFiles, disabled = false, placeholder = 'Send a message...', canSendOverride, bare = false, className }) {
   const textareaRef = useRef(null);
   const fileInputRef = useRef(null);
   const [isDragging, setIsDragging] = useState(false);
   const isStreaming = status === 'streaming' || status === 'submitted';
+  const voiceStreamRef = useRef(null);
+  const [voiceEnabled, setVoiceEnabled] = useState(false);
+
+  useEffect(() => {
+    isVoiceEnabled().then(setVoiceEnabled).catch(() => {});
+  }, []);
+
+  const { isRecording, startRecording, stopRecording } = useVoiceInput({
+    getToken: getVoiceToken,
+    onTranscript: (text) => {
+      // Cancel any in-progress stream
+      if (voiceStreamRef.current) clearTimeout(voiceStreamRef.current);
+      let i = 0;
+      const streamChar = () => {
+        if (i >= text.length) { voiceStreamRef.current = null; return; }
+        // Capture i by value — React 18 batches setTimeout callbacks,
+        // so the updater may run after i++ if we close over i directly.
+        const ci = i;
+        setInput((prev) => {
+          const needsSpace = ci === 0 && prev && !prev.endsWith(' ');
+          return prev + (needsSpace ? ' ' : '') + text[ci];
+        });
+        i++;
+        voiceStreamRef.current = setTimeout(streamChar, 30);
+      };
+      streamChar();
+    },
+    onError: (err) => console.error('[voice]', err),
+  });
 
   // Auto-resize textarea
   const adjustHeight = useCallback(() => {
@@ -119,24 +150,28 @@ export function ChatInput({ input, setInput, onSubmit, status, stop, files, setF
 
   // Disabled state — show locked message
   if (disabled && !isStreaming) {
+    const disabledContent = (
+      <div className={cn("flex flex-col rounded-xl border border-border bg-muted p-2", className)}>
+        <div className="flex items-center px-2 py-1.5">
+          <span className="text-sm text-muted-foreground">{placeholder}</span>
+        </div>
+      </div>
+    );
+    if (bare) return disabledContent;
     return (
       <div className="mx-auto w-full max-w-4xl px-4 pb-4 md:px-6">
-        <div className="flex flex-col rounded-xl border border-border bg-muted p-2">
-          <div className="flex items-center px-2 py-1.5">
-            <span className="text-sm text-muted-foreground">{placeholder}</span>
-          </div>
-        </div>
+        {disabledContent}
       </div>
     );
   }
 
-  return (
-    <div className="mx-auto w-full max-w-4xl px-4 pb-4 md:px-6">
-      <form onSubmit={handleSubmit} className="relative">
-        <div
+  const formContent = (
+    <form onSubmit={handleSubmit} className="relative">
+      <div
           className={cn(
             'flex flex-col rounded-xl border bg-muted p-2 transition-colors',
-            isDragging ? 'border-primary bg-primary/5' : 'border-border'
+            isDragging ? 'border-primary bg-primary/5' : 'border-border',
+            className
           )}
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
@@ -217,33 +252,56 @@ export function ChatInput({ input, setInput, onSubmit, status, stop, files, setF
               />
             </div>
 
-            {isStreaming ? (
-              <button
-                type="button"
-                onClick={stop}
-                className="inline-flex items-center justify-center rounded-lg bg-foreground p-2 text-background hover:opacity-80"
-                aria-label="Stop generating"
-              >
-                <StopIcon size={16} />
-              </button>
-            ) : (
-              <button
-                type="submit"
-                disabled={!canSend}
-                className={cn(
-                  'inline-flex items-center justify-center rounded-lg p-2',
-                  canSend
-                    ? 'bg-foreground text-background hover:opacity-80'
-                    : 'bg-muted-foreground/20 text-muted-foreground cursor-not-allowed'
-                )}
-                aria-label="Send message"
-              >
-                <SendIcon size={16} />
-              </button>
-            )}
+            <div className="flex items-center gap-1">
+              {isStreaming ? (
+                <button
+                  type="button"
+                  onClick={stop}
+                  className="inline-flex items-center justify-center rounded-lg bg-foreground p-2 text-background hover:opacity-80"
+                  aria-label="Stop generating"
+                >
+                  <StopIcon size={16} />
+                </button>
+              ) : (
+                <button
+                  type="submit"
+                  disabled={!canSend}
+                  className={cn(
+                    'inline-flex items-center justify-center rounded-lg p-2',
+                    canSend
+                      ? 'bg-foreground text-background hover:opacity-80'
+                      : 'bg-muted-foreground/20 text-muted-foreground cursor-not-allowed'
+                  )}
+                  aria-label="Send message"
+                >
+                  <SendIcon size={16} />
+                </button>
+              )}
+              {voiceEnabled && !isStreaming && (
+                <button
+                  type="button"
+                  onClick={isRecording ? stopRecording : startRecording}
+                  className={cn(
+                    'inline-flex items-center justify-center rounded-lg p-2',
+                    isRecording
+                      ? 'bg-red-500 text-white hover:opacity-80'
+                      : 'bg-foreground text-background hover:opacity-80'
+                  )}
+                  aria-label={isRecording ? 'Stop recording' : 'Start voice input'}
+                >
+                  <MicIcon size={16} />
+                </button>
+              )}
+            </div>
           </div>
         </div>
-      </form>
+    </form>
+  );
+
+  if (bare) return formContent;
+  return (
+    <div className="mx-auto w-full max-w-4xl px-4 pb-4 md:px-6">
+      {formContent}
     </div>
   );
 }
