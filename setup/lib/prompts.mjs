@@ -186,7 +186,30 @@ export async function promptForCustomProvider() {
     message: 'API key (leave blank if not needed):',
   }));
 
-  return { baseUrl, model, apiKey: apiKey || '' };
+  const contextWindowChoice = handleCancel(await clack.select({
+    message: 'Context window size (tokens)?',
+    options: [
+      { label: '8 192  — Llama 3.2, Mistral 7B, Gemma 2 (default)', value: '8192' },
+      { label: '4 096  — Phi-3 mini and other small models', value: '4096' },
+      { label: '16 384 — Mid-range models', value: '16384' },
+      { label: '32 768 — Qwen 2.5 and larger models', value: '32768' },
+      { label: '131 072 — Llama 3.1/3.3 70B+ with full context', value: '131072' },
+      { label: 'Custom — enter manually', value: '__custom__' },
+    ],
+  }));
+
+  let contextWindow = contextWindowChoice;
+  if (contextWindowChoice === '__custom__') {
+    contextWindow = handleCancel(await clack.text({
+      message: 'Context window in tokens:',
+      validate: (input) => {
+        if (!input) return 'Required';
+        if (isNaN(Number(input)) || Number(input) < 512) return 'Must be a number >= 512';
+      },
+    }));
+  }
+
+  return { baseUrl, model, apiKey: apiKey || '', contextWindow };
 }
 
 /**

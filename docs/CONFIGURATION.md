@@ -24,6 +24,10 @@ All environment variables for the Event Handler (set in `.env` in your project r
 | `OPENAI_API_KEY` | API key for OpenAI provider / Whisper voice transcription | For openai provider or voice |
 | `GOOGLE_API_KEY` | API key for Google provider | For google provider |
 | `DATABASE_PATH` | Override SQLite database location (default: `data/thepopebot.sqlite`) | No |
+| `TOKEN_BUDGET_ENABLED` | Enable/disable context window management (default: `true`). Set `false` to disable. | No |
+| `CONTEXT_WINDOW` | Model context window in tokens (default: `8192`). Set to match your model — critical for local LLMs. | No |
+| `RESPONSE_RESERVE` | Tokens reserved for the model's response (default: `1024`). | No |
+| `MAX_TOOL_OUTPUT_CHARS` | Max characters returned by any single tool call (default: `8000` ≈ 2 000 tokens). | No |
 | `THEPOPEBOT_VERSION` | Package version for Docker image tags (auto-set by setup) | No |
 | `LETSENCRYPT_EMAIL` | Email for Let's Encrypt SSL (docker-compose only) | No |
 | `EVENT_HANDLER_IMAGE_URL` | Custom event handler Docker image | No |
