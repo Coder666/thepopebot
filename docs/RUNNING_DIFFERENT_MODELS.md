@@ -155,6 +155,20 @@ OPENAI_BASE_URL=http://localhost:11434/v1
 
 If the endpoint requires an API key, also set `CUSTOM_API_KEY` in `.env`. Restart your server after changes.
 
+### Context window management for local models
+
+Local models have strict token limits and no cloud-side fallback. Set `CONTEXT_WINDOW` to match your model so the event handler trims conversation history before it overflows:
+
+```bash
+CONTEXT_WINDOW=8192    # Llama 3.2, Mistral 7B, Gemma 2
+CONTEXT_WINDOW=4096    # Phi-3 mini and other small models
+CONTEXT_WINDOW=32768   # Qwen 2.5, larger Llama 3.1 variants
+```
+
+The system prompt uses roughly 3 500 tokens. With the default `CONTEXT_WINDOW=8192` and `RESPONSE_RESERVE=1024`, the history budget is ~3 600 tokens — enough for several exchanges. Older messages are dropped automatically; the full history is always stored in the database.
+
+See [TOKEN_BUDGET.md](TOKEN_BUDGET.md) for the full reference and model sizing table.
+
 ## Quick Reference
 
 | What | Where | Variables |

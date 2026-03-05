@@ -23,6 +23,7 @@ export const CONFIG_TARGETS = {
   GOOGLE_API_KEY:        { env: true, secret: 'AGENT_GOOGLE_API_KEY' },
   CUSTOM_API_KEY:        { env: true, secret: 'AGENT_CUSTOM_API_KEY' },
   OPENAI_BASE_URL:       { env: true, variable: true },
+  CONTEXT_WINDOW:        { env: true },
 
   CLAUDE_CODE_OAUTH_TOKEN: { env: true, secret: 'AGENT_CLAUDE_CODE_OAUTH_TOKEN' },
   AGENT_BACKEND:           { env: true, variable: true },

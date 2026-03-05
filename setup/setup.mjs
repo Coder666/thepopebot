@@ -411,6 +411,9 @@ async function main() {
       openaiBaseUrl = env.OPENAI_BASE_URL;
       collected.OPENAI_BASE_URL = openaiBaseUrl;
     }
+    if (chatProvider === 'custom' && env.CONTEXT_WINDOW) {
+      collected.CONTEXT_WINDOW = env.CONTEXT_WINDOW;
+    }
   } else {
     // Prompt for new LLM config
     clack.log.info('Choose the LLM provider for your bot.');
@@ -432,7 +435,8 @@ async function main() {
       });
       collected.CUSTOM_API_KEY = custom.apiKey || '';
       collected.OPENAI_BASE_URL = openaiBaseUrl;
-      clack.log.success(`Custom provider configured: ${custom.model} @ ${custom.baseUrl}`);
+      collected.CONTEXT_WINDOW = custom.contextWindow;
+      clack.log.success(`Custom provider configured: ${custom.model} @ ${custom.baseUrl} (${custom.contextWindow} token context)`);
       if (custom.apiKey) {
         clack.log.success(`API key added (${maskSecret(custom.apiKey)})`);
       }
