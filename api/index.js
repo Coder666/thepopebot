@@ -200,6 +200,35 @@ async function handleGithubWebhook(request) {
   }
 }
 
+/**
+ * POST /api/chat — bot-to-bot chat endpoint.
+ * Accepts { message, threadId?, personaId? } and returns { response }.
+ * Authenticated via x-api-key (same as all other /api routes).
+ */
+async function handleChat(request) {
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return Response.json({ error: 'Invalid JSON body' }, { status: 400 });
+  }
+
+  const { message, threadId, personaId } = body;
+  if (!message || typeof message !== 'string') {
+    return Response.json({ error: 'Missing or invalid message field' }, { status: 400 });
+  }
+
+  const resolvedThreadId = threadId || `api-chat-${Date.now()}`;
+
+  try {
+    const response = await chat(resolvedThreadId, message, [], { personaId: personaId || 'default' });
+    return Response.json({ response, threadId: resolvedThreadId });
+  } catch (err) {
+    console.error('[/api/chat] error:', err);
+    return Response.json({ error: 'Failed to process message' }, { status: 500 });
+  }
+}
+
 async function handleJobStatus(request) {
   try {
     const url = new URL(request.url);
@@ -246,6 +275,7 @@ async function POST(request) {
 
   // Route to handler
   switch (routePath) {
+    case '/chat':               return handleChat(request);
     case '/create-job':          return handleWebhook(request);
     case '/telegram/webhook':   return handleTelegramWebhook(request);
     case '/telegram/register':  return handleTelegramRegister(request);
