@@ -1,0 +1,16 @@
+{
+  "default": {
+    "file": "personas/default.md",
+    "description": "Default bot persona — diligent generalist"
+  },
+  "manager": {
+    "file": "personas/manager.md",
+    "description": "Strategic coordinator that breaks goals into tasks and delegates to subordinates",
+    "subordinates": ["worker"]
+  },
+  "worker": {
+    "file": "personas/worker.md",
+    "description": "Focused executor that carries out tasks delegated by a manager",
+    "reportsTo": "manager"
+  }
+}
