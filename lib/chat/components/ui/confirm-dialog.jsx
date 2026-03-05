@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { cn } from '../../utils.js';
 
 export function ConfirmDialog({ open, onConfirm, onCancel, title, description, confirmLabel = 'Delete', cancelLabel = 'Cancel', variant = 'destructive' }) {
@@ -23,7 +24,10 @@ export function ConfirmDialog({ open, onConfirm, onCancel, title, description, c
 
   if (!open) return null;
 
-  return (
+  // Render via portal so the overlay is always relative to the viewport, not a
+  // transformed ancestor (e.g. the sidebar in Safari ignores position:fixed when
+  // a parent has a CSS transform applied).
+  return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div className="fixed inset-0 bg-black/50" onClick={onCancel} />
       <div className="relative z-50 w-full max-w-sm mx-4 rounded-lg border border-border bg-background p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
@@ -52,6 +56,7 @@ export function ConfirmDialog({ open, onConfirm, onCancel, title, description, c
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
