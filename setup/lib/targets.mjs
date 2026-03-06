@@ -43,4 +43,6 @@ export const CONFIG_TARGETS = {
   TELEGRAM_WEBHOOK_SECRET: { env: true },
   TELEGRAM_CHAT_ID:      { env: true },
   TELEGRAM_VERIFICATION: { env: true },
+
+  RAG_ENABLED:           { env: true },
 };
