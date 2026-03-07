@@ -26,7 +26,8 @@ const REPO = 'stephengpope/thepopebot';
 const IMAGES = [
   {
     name: 'pi-coding-agent-job',
-    context: 'templates/docker/pi-coding-agent-job',
+    // Context is the repo root so the Dockerfile can COPY lib/gh-wrapper
+    context: '.',
     dockerfile: 'templates/docker/pi-coding-agent-job/Dockerfile',
   },
   {

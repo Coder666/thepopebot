@@ -1,0 +1,108 @@
+# thepopebot + Gitea self-hosted stack
+#
+# Brings up Gitea, a Gitea Actions runner, and the thepopebot event handler.
+# All three run on the same Docker network so they can reach each other by
+# service name.
+#
+# Quick start
+# ───────────
+#   1.  cp .env.example .env   # then edit GITEA_DOMAIN / APP_URL / passwords
+#   2.  docker compose up -d gitea
+#   3.  Visit http://localhost:3000 and finish the install wizard
+#   4.  In Gitea: Site Administration → Actions → Runners → Create runner
+#       Copy the registration token into .env as GITEA_RUNNER_TOKEN
+#   5.  docker compose up -d gitea-runner thepopebot
+#   6.  Run: node setup/setup-gitea.mjs   (configures repos, vars, secrets)
+
+name: thepopebot-gitea
+
+services:
+
+  # ── Gitea ──────────────────────────────────────────────────────────────
+  gitea:
+    image: gitea/gitea:latest
+    container_name: gitea
+    restart: unless-stopped
+    environment:
+      USER_UID: "1000"
+      USER_GID: "1000"
+      GITEA__database__DB_TYPE: sqlite3
+      GITEA__database__PATH: /data/gitea/gitea.db
+      GITEA__server__DOMAIN: ${GITEA_DOMAIN:-localhost}
+      GITEA__server__ROOT_URL: ${GITEA_URL:-http://localhost:3000}/
+      GITEA__server__HTTP_PORT: "3000"
+      GITEA__actions__ENABLED: "true"
+      GITEA__actions__DEFAULT_ACTIONS_URL: ${GITEA_URL:-http://localhost:3000}
+      # Increase token entropy for production (any random 32+ char string)
+      GITEA__security__SECRET_KEY: ${GITEA_SECRET_KEY:-changeme-use-a-real-secret-in-production}
+    volumes:
+      - gitea-data:/data
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
+    ports:
+      - "${GITEA_HTTP_PORT:-3000}:3000"
+      - "${GITEA_SSH_PORT:-2222}:22"
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # ── Gitea Actions Runner ────────────────────────────────────────────────
+  # Picks up agent job workflows and runs Docker containers for each job.
+  # Needs access to the Docker socket and a runner registration token.
+  #
+  # Get the token:
+  #   Gitea UI → Site Administration → Actions → Runners → Create runner
+  #   OR: docker compose exec gitea gitea actions generate-runner-token
+  gitea-runner:
+    image: gitea/act_runner:latest
+    container_name: gitea-runner
+    restart: unless-stopped
+    depends_on:
+      gitea:
+        condition: service_healthy
+    environment:
+      GITEA_INSTANCE_URL: http://gitea:3000
+      GITEA_RUNNER_REGISTRATION_TOKEN: ${GITEA_RUNNER_TOKEN:?Set GITEA_RUNNER_TOKEN in .env}
+      GITEA_RUNNER_NAME: ${GITEA_RUNNER_NAME:-popebot-runner}
+      CONFIG_FILE: /config/config.yaml
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - runner-data:/data
+      - ./runner-config.yaml:/config/config.yaml:ro
+    networks:
+      - internal
+
+  # ── thepopebot event handler ────────────────────────────────────────────
+  # The event handler processes incoming webhooks (Telegram, GitHub/Gitea
+  # pushes, etc.) and dispatches agent jobs.
+  #
+  # Mount your project directory at /app.  The published npm package is
+  # already installed inside the image; your config/, skills/, and .env
+  # files are loaded from the mount.
+  thepopebot:
+    image: stephengpope/thepopebot:event-handler-latest
+    container_name: thepopebot
+    restart: unless-stopped
+    depends_on:
+      - gitea
+    env_file:
+      - .env
+    volumes:
+      # Mount your thepopebot project directory here
+      - ${THEPOPEBOT_PROJECT_DIR:-./project}:/app
+    ports:
+      - "${THEPOPEBOT_PORT:-3001}:80"
+    networks:
+      - internal
+
+networks:
+  internal:
+    driver: bridge
+
+volumes:
+  gitea-data:
+  runner-data:
