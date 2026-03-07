@@ -2,34 +2,37 @@
 
 thepopebot ships a `gh`-compatible shim (`lib/gh-wrapper`) that lets the Docker agent use the same `gh` CLI commands whether your repos are on GitHub or a self-hosted Gitea instance. The calling code never knows which backend it is talking to.
 
-## Quick start (Docker Compose stack)
+## Quick start
 
-The fastest way to get a full Gitea + thepopebot stack running locally:
+Run the interactive setup wizard from your popebot project directory:
 
 ```sh
-# 1. Copy the stack template to a working directory
-cp -r node_modules/thepopebot/templates/docker/gitea-stack ./gitea-stack
-cd gitea-stack
-
-# 2. Configure environment
-cp .env.example .env
-$EDITOR .env    # set GITEA_DOMAIN, GITEA_SECRET_KEY, passwords, etc.
-
-# 3. Start Gitea first
-docker compose up -d gitea
-
-# 4. Complete the Gitea install wizard at http://localhost:3000
-#    Then get the Actions runner token:
-#    Site Administration → Actions → Runners → Create runner
-#    — or via CLI:
-docker compose exec gitea gitea actions generate-runner-token
-
-# 5. Add GITEA_RUNNER_TOKEN to .env, then bring up the full stack
-docker compose up -d
-
-# 6. Run the interactive setup wizard (creates repo, sets secrets/vars)
-node path/to/your/project/setup/setup-gitea.mjs
+node node_modules/thepopebot/setup/setup-gitea.mjs
+# or, if working from source:
+node setup/setup-gitea.mjs
 ```
+
+The wizard walks through six steps and handles everything automatically:
+
+| Step | What it does |
+|---|---|
+| **1 — Gitea instance** | **Docker mode** (default): prompts for a compose directory (default `./gitea-stack`), HTTP port (default `3000`), domain, and admin credentials, then writes `docker-compose.yml` + `runner-config.yaml`, starts Gitea, creates the admin user via the CLI, generates a runner registration token, creates a PAT, and starts the Actions runner. **Existing mode**: asks for the URL and admin credentials, then creates a PAT. |
+| **2 — Repository** | Creates (or finds) the bot repository on Gitea. |
+| **3 — Push** | Optionally initialises git and force-pushes the project. |
+| **4 — LLM** | Selects provider, model, and API key. |
+| **5 — Job image** | Published `stephengpope/thepopebot` images or a custom Docker image URL. |
+| **6 — Apply** | Sets all repo variables and secrets; writes `.env`. |
+
+### Flags
+
+```sh
+node setup/setup-gitea.mjs --dry-run          # print what would happen, no changes
+node setup/setup-gitea.mjs --project /path    # specify project root (default: cwd)
+```
+
+### Compose directory
+
+In Docker mode you are prompted for the directory where Gitea's compose files and data will live. The default is `./gitea-stack` (relative to the current directory). You can enter any absolute or relative path — the wizard creates it if it doesn't exist.
 
 ## How the shim works
 
@@ -49,14 +52,18 @@ Set these as Gitea repository variables/secrets (the setup wizard does this for 
 | Variable | Where | Description |
 |---|---|---|
 | `GH_WRAPPER_BACKEND` | Repo variable | Set to `gitea` to enable the Gitea backend |
-| `GITEA_URL` | Repo variable | Base URL of your Gitea instance, e.g. `https://gitea.example.com` |
 | `AGENT_GITEA_TOKEN` | Repo **secret** | Gitea PAT — automatically unpacked as `GITEA_TOKEN` inside the agent container |
+
+> **Note — `GITEA_URL` cannot be a repo variable.** Names starting with `GITEA_` are reserved
+> by the Gitea Actions runner and are rejected with HTTP 400 if you try to set them. Instead,
+> `run-job.yml` derives the URL from the built-in `github.server_url` expression and passes it
+> into the agent container as `GITEA_URL`. No manual configuration needed.
 
 Also set in your event handler `.env`:
 
 ```sh
 GH_WRAPPER_BACKEND=gitea
-GITEA_URL=https://gitea.example.com
+GITEA_URL=http://gitea:3000        # internal Docker hostname when using the compose stack
 GITEA_TOKEN=<your-pat>
 ```
 
@@ -151,7 +158,7 @@ Gitea does not support auto-merge. `--auto` is accepted but the merge is perform
 
 ## Troubleshooting
 
-**`GITEA_URL is not set`** — `GH_WRAPPER_BACKEND=gitea` is set but `GITEA_URL` is missing. Add it to your repo variables.
+**`GITEA_URL is not set`** — `GH_WRAPPER_BACKEND=gitea` is set but `GITEA_URL` is missing. Check that `run-job.yml` contains `GITEA_SERVER_URL: ${{ github.server_url }}` in the `env:` block and `-e GITEA_URL="${GITEA_SERVER_URL:-}"` in the `docker run` call. Re-run the managed-files sync (`npx thepopebot init`) to update to the latest workflow.
 
 **`No Gitea token found`** — Neither `GITEA_TOKEN` nor `GH_TOKEN` is set. Add `AGENT_GITEA_TOKEN` as a repo secret.
 
