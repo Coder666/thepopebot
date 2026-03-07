@@ -1,0 +1,31 @@
+# Gitea act_runner configuration
+# Reference: https://gitea.com/gitea/act_runner
+
+log:
+  level: info
+
+runner:
+  # How many jobs the runner can execute concurrently
+  capacity: 4
+  # Labels define what runs-on values this runner accepts
+  labels:
+    - "ubuntu-latest:docker://node:22-bookworm-slim"
+    - "ubuntu-22.04:docker://node:22-bookworm-slim"
+    - "self-hosted:docker://node:22-bookworm-slim"
+
+cache:
+  enabled: true
+  dir: ""       # default: runner data dir
+  host: ""      # leave empty to use the runner's auto-detected host
+  port: 0       # 0 = auto-assign
+
+container:
+  # Allow Docker-in-Docker for agent job containers
+  docker_host: "unix:///var/run/docker.sock"
+  # Options passed to every `docker run` spawned by the runner
+  options: "--network=host"
+  # Pull images if not present
+  force_pull: false
+  # Remove containers after each job
+  valid_volumes:
+    - "**"
