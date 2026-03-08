@@ -558,7 +558,7 @@ async function upgrade() {
   try {
     execSync('git pull --rebase', { stdio: 'inherit', cwd });
   } catch {
-    console.error('\n  Your local changes conflict with changes on GitHub.');
+    console.error('\n  Your local changes conflict with changes on the remote.');
     console.error('  This means someone (or your bot) changed the same files you did.\n');
     console.error('  To fix this:');
     console.error('    1. Open the files listed above and look for <<<<<<< markers');
@@ -618,11 +618,11 @@ async function upgrade() {
   }
 
   // --- Push ---
-  console.log('\n  Pushing to GitHub...\n');
+  console.log('\n  Pushing to remote...\n');
   try {
     execSync('git push', { stdio: 'inherit', cwd });
   } catch {
-    console.error('\n  Could not push to GitHub. Try running "git push" manually.\n');
+    console.error('\n  Could not push to remote. Try running "git push" manually.\n');
     process.exit(1);
   }
 
