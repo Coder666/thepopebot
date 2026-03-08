@@ -726,7 +726,7 @@ async function setAgentSecret(key, value) {
 
   const result = await setSecret(owner, repo, prefixedName, value);
   if (result.success) {
-    console.log(`\n  Set GitHub secret: ${prefixedName}`);
+    console.log(`\n  Set repository secret: ${prefixedName}`);
     updateEnvVariable(key, value);
     console.log(`  Updated .env: ${key}`);
     console.log('');
@@ -752,7 +752,7 @@ async function setAgentLlmSecret(key, value) {
 
   const result = await setSecret(owner, repo, prefixedName, value);
   if (result.success) {
-    console.log(`\n  Set GitHub secret: ${prefixedName}\n`);
+    console.log(`\n  Set repository secret: ${prefixedName}\n`);
   } else {
     console.error(`\n  Failed to set ${prefixedName}: ${result.error}\n`);
     process.exit(1);
@@ -774,7 +774,7 @@ async function setVar(key, value) {
 
   const result = await setVariable(owner, repo, key, value);
   if (result.success) {
-    console.log(`\n  Set GitHub variable: ${key}\n`);
+    console.log(`\n  Set repository variable: ${key}\n`);
   } else {
     console.error(`\n  Failed to set ${key}: ${result.error}\n`);
     process.exit(1);
