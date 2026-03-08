@@ -264,8 +264,9 @@ No questions — the wizard automatically:
 
 **Q: Host port for the web UI**
 
-- Default: `3001`
-- What it means: The port on your machine where you'll access thepopebot's chat UI (`http://localhost:3001`). Change if port 3001 is taken.
+- Default: `3001` (auto-adjusted to `3002` if Gitea is already on `3001`)
+- What it means: The port on your machine where you'll access thepopebot's chat UI (e.g. `http://localhost:3001`). The wizard detects the port your Gitea is running on and automatically picks a different default so they don't conflict. Change it to whatever port you prefer.
+- The wizard will reject the same port number as Gitea to prevent a conflict.
 
 ---
 
