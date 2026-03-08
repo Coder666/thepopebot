@@ -4,9 +4,8 @@ on:
   workflow_dispatch:
     inputs:
       branch:
-        description: 'Branch of pope-bot fork to build from (default: feature/all-features)'
+        description: 'Branch to build from (default: vars.FORK_BRANCH or feature/all-features)'
         required: false
-        default: 'feature/all-features'
 
 jobs:
   rebuild:
@@ -15,13 +14,18 @@ jobs:
     steps:
       - name: Build agent image from fork
         env:
-          FORK_BRANCH: ${{ github.event.inputs.branch || 'feature/all-features' }}
+          FORK_BRANCH: ${{ github.event.inputs.branch || vars.FORK_BRANCH || 'feature/all-features' }}
+          FORK_REPO_URL: ${{ vars.FORK_REPO_URL }}
         run: |
+          if [ -z "$FORK_REPO_URL" ]; then
+            echo "ERROR: FORK_REPO_URL repo variable is not set."
+            echo "Run the setup wizard (npx thepopebot setup-gitea) to configure it."
+            exit 1
+          fi
+
           BUILD_DIR=$(mktemp -d)
 
-          # Clone via SSH (key configured in ~/.ssh/config as gitea-local)
-          git clone --depth 1 --branch "$FORK_BRANCH" \
-            ssh://gitea-local/admin/pope-bot.git "$BUILD_DIR"
+          git clone --depth 1 --branch "$FORK_BRANCH" "$FORK_REPO_URL" "$BUILD_DIR"
 
           # Build the agent image (context = repo root so lib/gh-wrapper is accessible)
           docker build \
@@ -30,5 +34,5 @@ jobs:
             "$BUILD_DIR"
 
           rm -rf "$BUILD_DIR"
-          echo "Built thepopebot-local:pi-coding-agent-job from ${FORK_BRANCH}"
+          echo "Built thepopebot-local:pi-coding-agent-job from ${FORK_BRANCH} @ ${FORK_REPO_URL}"
           docker images thepopebot-local:pi-coding-agent-job
