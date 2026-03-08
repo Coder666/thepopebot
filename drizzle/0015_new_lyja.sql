@@ -1,0 +1,1 @@
+ALTER TABLE `cluster_roles` ADD `prompt` text DEFAULT 'Execute your role.' NOT NULL;

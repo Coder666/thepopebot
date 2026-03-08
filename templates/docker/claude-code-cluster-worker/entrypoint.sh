@@ -49,27 +49,39 @@ SESSION_TS=$(date -u +%Y-%m-%d_%H-%M-%S)
 LOG_DIR="logs/role-${ROLE_SHORT_ID}/${SESSION_TS}_${WORKER_UUID}"
 LOG_READY=false
 if mkdir -p "$LOG_DIR" 2>/dev/null; then
-    printf '%s' "$HEADLESS_TASK" > "$LOG_DIR/prompt.md" 2>/dev/null
+    {
+        echo "# System Prompt"
+        echo ""
+        printf '%s' "$SYSTEM_PROMPT"
+        echo ""
+        echo ""
+        echo "# Prompt"
+        echo ""
+        printf '%s' "$PROMPT"
+    } > "$LOG_DIR/prompt.md" 2>/dev/null
     cat > "$LOG_DIR/meta.json" << ENDJSON
 {"roleName":"${ROLE_NAME}","startedAt":"$(date -u +%Y-%m-%dT%H:%M:%SZ)"}
 ENDJSON
+    if [ -n "$TRIGGER_LOG" ]; then
+        printf '%s' "$TRIGGER_LOG" > "$LOG_DIR/trigger.json" 2>/dev/null
+    fi
     LOG_READY=true
+fi
+
+# Build claude args
+CLAUDE_ARGS=(-p "$PROMPT" --dangerously-skip-permissions --verbose --output-format stream-json)
+if [ -n "$SYSTEM_PROMPT" ]; then
+    CLAUDE_ARGS+=(--append-system-prompt "$SYSTEM_PROMPT")
 fi
 
 # Run Claude Code — tee to log files if ready, otherwise run normally
 if [ "$LOG_READY" = true ]; then
-    claude -p "$HEADLESS_TASK" \
-        --dangerously-skip-permissions \
-        --verbose \
-        --output-format stream-json \
+    claude "${CLAUDE_ARGS[@]}" \
         > >(tee "$LOG_DIR/stdout.jsonl") \
         2> >(tee "$LOG_DIR/stderr.txt" >&2)
     EXIT_CODE=$?
 else
-    claude -p "$HEADLESS_TASK" \
-        --dangerously-skip-permissions \
-        --verbose \
-        --output-format stream-json
+    claude "${CLAUDE_ARGS[@]}"
     EXIT_CODE=$?
 fi
 

@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "f08823b9-f68f-4742-9d7b-a81974faa1be",
-  "prevId": "28860612-adc8-45f5-810a-8774ffded1cc",
+  "id": "196fc5e1-deb6-4470-a05f-8d9400df8f61",
+  "prevId": "f08823b9-f68f-4742-9d7b-a81974faa1be",
   "tables": {
     "chats": {
       "name": "chats",
@@ -96,6 +96,14 @@
           "notNull": true,
           "autoincrement": false,
           "default": "''"
+        },
+        "prompt": {
+          "name": "prompt",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'Execute your role.'"
         },
         "trigger_config": {
           "name": "trigger_config",

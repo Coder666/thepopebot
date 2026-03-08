@@ -30,18 +30,31 @@ data/clusters/
 
 ## Trigger Types
 
-Roles support multiple concurrent triggers. Webhook is always-on. All triggers route through the webhook endpoint internally.
+Roles support multiple concurrent triggers. All paths use `canRunRole()` as a shared gate before calling `runClusterRole()` directly.
 
 | Trigger | Config Key | How It Works |
 |---------|-----------|--------------|
-| Manual | (always available) | `triggerRoleManually()` → `runClusterRole()` |
-| Webhook | (always-on) | POST to `/api/cluster/{clusterId}/role/{roleId}/webhook` |
-| Cron | `cron.schedule` | node-cron → internal webhook fetch |
-| File Watch | `file_watch.paths` | chokidar → internal webhook fetch |
+| Manual | (always available) | `triggerRoleManually()` → `canRunRole()` → `runClusterRole()` |
+| Webhook | (always-on) | POST → `handleClusterWebhook()` → `canRunRole()` → `runClusterRole()` |
+| Cron | `cron.schedule` | node-cron → `canRunRole()` → `runClusterRole()` |
+| File Watch | `file_watch.paths` | chokidar → `canRunRole()` → `runClusterRole()` |
 
-## Concurrency
+## Concurrency & Validation
 
-Each role has `maxConcurrency` (default 1). Before launching a container, `listContainers()` counts running instances matching the role's container name prefix. If at max, the webhook returns 429.
+`canRunRole(roleIdOrData)` is the shared gate function. It checks cluster enabled status and concurrency limits. Returns `{ allowed, reason?, roleData? }`. All trigger paths call this before `runClusterRole()`.
+
+Each role has `maxConcurrency` (default 1). `canRunRole()` counts running instances via `listContainers()`. Reasons: `disabled` (cluster off), `concurrency` (at max), `not_found`.
+
+## Prompt Architecture
+
+Workers receive two separate prompts passed as env vars to the container:
+
+- **`SYSTEM_PROMPT`** — Cluster system prompt + role instructions. Passed via `--append-system-prompt` to Claude Code, appended to its built-in system prompt.
+- **`PROMPT`** — The role's `prompt` field (default: "Execute your role."). Passed via `-p` as the user prompt.
+
+This separation means the system context (who the role is, workspace layout, shared instructions) goes into the system prompt, while the actual task instruction is the user prompt. Template `{{PLACEHOLDER}}` variables are resolved in both.
+
+Built by `buildTemplateVars()` → `buildWorkerSystemPrompt()` + `resolveClusterVariables(role.prompt)` in `execute.js`.
 
 ## Key Functions
 
@@ -49,7 +62,8 @@ Each role has `maxConcurrency` (default 1). Before launching a container, `listC
 - `clusterNaming(cluster)` → `{ project, dataDir }` for Docker resource naming
 - `clusterDir(cluster)` → absolute path to cluster data directory
 - `roleDir(cluster, role)` → absolute path to role subdirectory
-- `runClusterRole(roleId, context?)` → launches container with concurrency check
+- `canRunRole(roleIdOrData)` → shared gate: checks disabled + concurrency, returns `{ allowed, reason?, roleData? }`
+- `runClusterRole(roleData, payload?)` → launches container (caller must gate with `canRunRole` first)
 - `stopRoleContainers(cluster, role)` → stops all containers for a role
 - `countRunningForRole(cluster, role)` → counts running containers
 
@@ -61,6 +75,6 @@ Each role has `maxConcurrency` (default 1). Before launching a container, `listC
 ## DB Tables
 
 - `clusters` — cluster metadata (name, system_prompt, folders, enabled)
-- `cluster_roles` — role definitions scoped to a cluster (role_name, role, trigger_config, max_concurrency, cleanup_worker_dir, folders)
+- `cluster_roles` — role definitions scoped to a cluster (role_name, role, prompt, trigger_config, max_concurrency, cleanup_worker_dir, folders)
 
 Workers are ephemeral containers, not database entities.

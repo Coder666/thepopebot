@@ -453,6 +453,7 @@ function RoleTabContent({ role, clusterId, status, onUpdate, onDelete }) {
   const shortId = role.id.replace(/-/g, '').slice(0, 8);
   const [nameValue, setNameValue] = useState(role.roleName || 'New Role');
   const [rolePromptValue, setRolePromptValue] = useState(role.role || '');
+  const [promptValue, setPromptValue] = useState(role.prompt || 'Execute your role.');
   const [running, setRunning] = useState(false);
   const [stopping, setStopping] = useState(false);
   const [foldersValue, setFoldersValue] = useState(role.folders ? role.folders.join(', ') : '');
@@ -474,6 +475,7 @@ function RoleTabContent({ role, clusterId, status, onUpdate, onDelete }) {
   useEffect(() => {
     setNameValue(role.roleName || 'New Role');
     setRolePromptValue(role.role || '');
+    setPromptValue(role.prompt || 'Execute your role.');
     setFoldersValue(role.folders ? role.folders.join(', ') : '');
     setMaxConcurrency(role.maxConcurrency || 1);
     setCleanupWorkerDir(!!role.cleanupWorkerDir);
@@ -502,6 +504,12 @@ function RoleTabContent({ role, clusterId, status, onUpdate, onDelete }) {
   const saveRolePrompt = () => {
     if (rolePromptValue !== (role.role || '')) {
       onUpdate(role.id, { role: rolePromptValue });
+    }
+  };
+
+  const savePrompt = () => {
+    if (promptValue !== (role.prompt || 'Execute your role.')) {
+      onUpdate(role.id, { prompt: promptValue });
     }
   };
 
@@ -646,14 +654,41 @@ function RoleTabContent({ role, clusterId, status, onUpdate, onDelete }) {
         </div>
       </div>
 
-      {/* Role Prompt */}
+      {/* Role Instructions */}
       <div className="mb-6">
-        <label className="text-sm font-medium block mb-1">Role Prompt</label>
+        <label className="text-sm font-medium block mb-1">Role Instructions</label>
+        <p className="text-xs text-muted-foreground mb-2">System-level context appended to every worker run. Describes who this role is and how it should behave.</p>
         <textarea
           value={rolePromptValue}
           onChange={(e) => setRolePromptValue(e.target.value)}
           onBlur={saveRolePrompt}
           placeholder="Describe what this role does..."
+          rows={3}
+          className="w-full text-sm bg-background border border-input rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-ring resize-y font-mono"
+        />
+        <div className="flex items-center gap-2 mt-1.5">
+          <span className="text-xs text-muted-foreground">
+            Use <code className="font-mono bg-muted px-1 rounded">{'{{PLACEHOLDERS}}'}</code> for dynamic values.
+          </span>
+          <button
+            type="button"
+            onClick={() => setShowPlaceholders(true)}
+            className="text-xs text-primary underline underline-offset-2 hover:text-primary/80"
+          >
+            View all →
+          </button>
+        </div>
+      </div>
+
+      {/* Prompt */}
+      <div className="mb-6">
+        <label className="text-sm font-medium block mb-1">Prompt</label>
+        <p className="text-xs text-muted-foreground mb-2">The task passed to the worker each time it runs.</p>
+        <textarea
+          value={promptValue}
+          onChange={(e) => setPromptValue(e.target.value)}
+          onBlur={savePrompt}
+          placeholder="Execute your role."
           rows={3}
           className="w-full text-sm bg-background border border-input rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-ring resize-y font-mono"
         />
@@ -908,7 +943,7 @@ function PlaceholderDialog({ open, onClose }) {
         </div>
         <div className="overflow-y-auto px-6 py-4">
           <p className="text-xs text-muted-foreground mb-3">
-            Use these in system prompt and role prompt fields. Case-insensitive. Resolved at container launch.
+            Use these in system prompt, role instructions, and prompt fields. Case-insensitive. Resolved at container launch.
           </p>
           <table className="w-full text-sm mb-6">
             <thead>

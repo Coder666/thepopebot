@@ -17,3 +17,15 @@ Browser-facing features must use **Server Actions** (`'use server'` functions) w
 | External (cURL, GitHub Actions, Telegram) | `/api` route | `x-api-key` header |
 | Browser UI (data/mutations) | Server Action | `requireAuth()` session |
 | Browser UI (chat streaming) | `/stream/chat` | `auth()` session |
+
+## Routes
+
+| Method | Path | Auth | Handler |
+|--------|------|------|---------|
+| GET | `/api/ping` | None | Health check |
+| POST | `/api/create-job` | `x-api-key` | Create agent job |
+| GET | `/api/jobs/status` | `x-api-key` | Job status (query: `?job_id=`) |
+| POST | `/api/telegram/webhook` | Telegram webhook secret | Telegram message handler |
+| POST | `/api/telegram/register` | `x-api-key` | Register bot token + webhook URL |
+| POST | `/api/github/webhook` | GitHub webhook secret | GitHub event handler |
+| POST | `/api/cluster/:clusterId/role/:roleId/webhook` | `x-api-key` | Trigger cluster role execution |

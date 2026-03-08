@@ -54,9 +54,11 @@ Files in managed directories are auto-synced (created, updated, **and deleted**)
 │   ├── auth/                   # NextAuth config, helpers, middleware, server actions, components
 │   ├── channels/               # Channel adapters (base class, Telegram, factory)
 │   ├── chat/                   # Chat route handler, server actions, React UI components
+│   ├── cluster/                # Worker clusters (roles, triggers, Docker containers)
 │   ├── code/                   # Code workspaces (server actions, terminal view, WebSocket proxy)
 │   ├── db/                     # SQLite via Drizzle (schema, migrations, api-keys)
 │   ├── tools/                  # Job creation, GitHub API, Telegram, Docker, Whisper
+│   ├── voice/                  # Voice input (AssemblyAI streaming transcription)
 │   └── utils/
 │       └── render-md.js        # Markdown {{include}} processor
 ├── config/
@@ -71,11 +73,11 @@ Files in managed directories are auto-synced (created, updated, **and deleted**)
 
 ## NPM Package Exports
 
-Exports defined in `package.json` `exports` field. Pattern: `thepopebot/{module}` maps to source files in `api/`, `lib/`, `config/`. Add new exports there when creating new importable modules.
+Exports defined in `package.json` `exports` field. Pattern: `thepopebot/{module}` maps to source files in `api/`, `lib/`, `config/`. Includes `./cluster/*`, `./voice/*` exports. Add new exports there when creating new importable modules.
 
 ## Build System
 
-Run `npm run build` before publish. esbuild compiles `lib/chat/components/**/*.jsx`, `lib/auth/components/**/*.jsx`, `lib/code/*.jsx` to ES modules.
+Run `npm run build` before publish. esbuild compiles `lib/chat/components/**/*.jsx`, `lib/auth/components/**/*.jsx`, `lib/code/*.jsx`, `lib/cluster/components/**/*.jsx` to ES modules.
 
 ## Database
 
@@ -105,69 +107,26 @@ SQLite via Drizzle ORM at `data/thepopebot.sqlite` (override with `DATABASE_PATH
 
 ## Action Dispatch System
 
-Both cron jobs and webhook triggers use the same shared dispatch system (`lib/actions.js`). Every action has a `type` field — `"agent"` (default), `"command"`, or `"webhook"`.
-
-| | `agent` | `command` | `webhook` |
-|---|---------|-----------|-----------|
-| **Uses LLM** | Yes — spins up a Docker agent container (Pi or Claude Code) | No — runs a shell command | No — makes an HTTP request |
-| **Runtime** | Minutes to hours | Milliseconds to seconds | Milliseconds to seconds |
-| **Cost** | LLM API calls + GitHub Actions minutes | Free (runs on event handler) | Free (runs on event handler) |
-
-If the task needs to *think*, use `agent`. If it just needs to *do*, use `command`. If it needs to *call an external service*, use `webhook`.
-
-**Agent**: Creates a Docker Agent job via `createJob()`. Pushes a `job/*` branch; `run-job.yml` spins up the container. The `job` string is the LLM task prompt. Agent backend selected via `agent_backend` in `job.config.json`.
-
-**Command**: Runs a shell command on the event handler. Working directory: `cron/` for crons, `triggers/` for triggers.
-
-**Webhook**: Makes an HTTP request. `GET` skips the body; `POST` (default) sends `{ ...vars }` or `{ ...vars, data: <payload> }`.
-
-### Cron Jobs
-
-Defined in `config/CRONS.json`, loaded by `lib/cron.js` at startup via `node-cron`. Each entry has `name`, `schedule` (cron expression), `type` (`agent`/`command`/`webhook`), and the corresponding action fields (`job`, `command`, or `url`/`method`/`headers`/`vars`). Set `enabled: false` to disable. Agent-type entries support optional `llm_provider` and `llm_model` fields to override the default LLM (passed to Docker agent via `job.config.json`).
-
-### Webhook Triggers
-
-Defined in `config/TRIGGERS.json`, loaded by `lib/triggers.js`. Each trigger watches an endpoint path (`watch_path`) and fires an array of actions (fire-and-forget, after auth, before route handler). Actions use the same `type`/`job`/`command`/`url` fields as cron jobs, including optional `llm_provider`/`llm_model` overrides. Template tokens in `job` and `command` strings: `{{body}}`, `{{body.field}}`, `{{query}}`, `{{query.field}}`, `{{headers}}`, `{{headers.field}}`.
+Shared executor for cron jobs and webhook triggers (`lib/actions.js`). Three action types: `agent` (Docker LLM container), `command` (shell command), `webhook` (HTTP request). See `lib/CLAUDE.md` for detailed dispatch format, cron/trigger config, and template tokens.
 
 ## LLM Providers
 
-| Provider | `LLM_PROVIDER` | Default Model | Required Env |
-|----------|----------------|---------------|-------------|
-| Anthropic | `anthropic` (default) | `claude-sonnet-4-20250514` | `ANTHROPIC_API_KEY` |
-| OpenAI | `openai` | `gpt-4o` | `OPENAI_API_KEY` |
-| Google | `google` | `gemini-2.5-pro` | `GOOGLE_API_KEY` |
-| Custom | `custom` | — | `OPENAI_BASE_URL`, `CUSTOM_API_KEY` (optional) |
+See `lib/ai/CLAUDE.md` for the provider table and model defaults. Key: `LLM_PROVIDER` + `LLM_MODEL` env vars, `LLM_MAX_TOKENS` defaults to 4096.
 
-`LLM_MAX_TOKENS` defaults to 4096. Web search available for `anthropic` and `openai` providers only (disable with `WEB_SEARCH=false`).
+## Workspaces
 
-## Code Workspaces
+- **Code Workspaces**: Interactive Docker containers with in-browser terminal. See `lib/code/CLAUDE.md`.
+- **Cluster Workspaces**: Groups of Docker containers spawned from role definitions with triggers. See `lib/cluster/CLAUDE.md`.
 
-Interactive Docker containers with in-browser terminal (xterm.js → WebSocket → ttyd). Key files: `lib/code/actions.js` (server actions), `lib/code/ws-proxy.js` (WebSocket auth proxy), `lib/tools/docker.js` (container lifecycle). See `lib/code/CLAUDE.md` for data flow and auth details.
+Both use `lib/tools/docker.js` for container lifecycle via Unix socket API.
 
 ## Skills System
 
 Plugin directories under `skills/`. Activate by symlinking into `skills/active/`. Each skill has `SKILL.md` with YAML frontmatter (`name`, `description`). The `{{skills}}` template variable in markdown files resolves active skill descriptions at runtime. Default active skills: `browser-tools`, `llm-secrets`, `modify-self`.
 
-## Template Config Files
+## Template Config & Markdown Includes
 
-Users customize behavior through these files in `config/`:
-- `SOUL.md` — Agent personality/identity
-- `JOB_PLANNING.md` — Event handler system prompt (supports `{{skills}}`, `{{web_search}}`, `{{datetime}}`)
-- `CODE_PLANNING.md` — Code workspace system prompt
-- `CRONS.json`, `TRIGGERS.json` — Scheduled jobs and webhook triggers
-
-## Markdown File Includes
-
-Markdown files in `config/` support includes and built-in variables, powered by `lib/utils/render-md.js`.
-
-- **File includes**: `{{ filepath.md }}` — resolves relative to project root, recursive with circular detection. Missing files are left as-is.
-- **`{{datetime}}`** — Current ISO timestamp.
-- **`{{skills}}`** — Dynamic bullet list of active skill descriptions from `skills/active/*/SKILL.md` frontmatter. Never hardcode skill names — this is resolved at runtime.
-- **`{{web_search}}`** — Conditionally includes `config/WEB_SEARCH_AVAILABLE.md` or `config/WEB_SEARCH_UNAVAILABLE.md` based on provider support.
-
-## Authentication
-
-NextAuth v5 with Credentials provider (email/password), JWT in httpOnly cookies. First visit creates admin account. `requireAuth()` validates sessions in server actions. API routes use `x-api-key` header. `AUTH_SECRET` env var required for session encryption.
+See `config/CLAUDE.md` for config file details and the `{{ include }}` / `{{variable}}` system.
 
 ## Config Variable Architecture
 
