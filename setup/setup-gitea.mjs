@@ -763,7 +763,20 @@ sp_env.stop(`.env updated ✓`);
 
 log.step('Step 7/7 — Web UI (event handler)');
 
-let uiPort       = existingEnv.THEPOPEBOT_PORT || '3001';
+// Pick a safe default UI port that doesn't collide with Gitea.
+// Parse the port the user actually entered for Gitea (or what was generated).
+const _giteaHostPort = (() => {
+  try {
+    const parsed = new URL(giteaUrl);
+    // explicit port wins; fall back to scheme default
+    return parsed.port || (parsed.protocol === 'https:' ? '443' : '80');
+  } catch { return ''; }
+})();
+const _defaultUiPort = existingEnv.THEPOPEBOT_PORT ||
+  (_giteaHostPort === '3001' ? '3002' :
+   _giteaHostPort === '3002' ? '3003' : '3001');
+
+let uiPort       = _defaultUiPort;
 let uiHostname   = existingEnv.APP_HOSTNAME    || 'localhost';
 let uiComposeFile = path.join(PROJECT_ROOT, 'docker-compose.yml');
 let uiStarted    = false;
@@ -781,9 +794,16 @@ if (!dockerAvailable() && !DRY_RUN) {
   if (startUI) {
     uiPort = await text({
       message: 'Host port for the web UI',
-      placeholder: '3001',
-      initialValue: existingEnv.THEPOPEBOT_PORT || '3001',
-      validate: v => /^\d+$/.test(v.trim()) ? undefined : 'Must be a port number',
+      placeholder: _defaultUiPort,
+      initialValue: _defaultUiPort,
+      hint: _giteaHostPort && _giteaHostPort === _defaultUiPort
+        ? `(auto-adjusted — Gitea is already on port ${_giteaHostPort})`
+        : undefined,
+      validate: v => {
+        if (!/^\d+$/.test(v.trim())) return 'Must be a port number';
+        if (v.trim() === _giteaHostPort) return `Port ${v.trim()} is already used by Gitea — pick a different port`;
+        return undefined;
+      },
     });
     if (sym(uiPort)) process.exit(0);
 
