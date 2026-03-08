@@ -4,24 +4,37 @@ thepopebot ships a `gh`-compatible shim (`lib/gh-wrapper`) that lets the Docker 
 
 ## Quick start
 
-Run the interactive setup wizard from your popebot project directory:
+> **New to this?** See [docs/SETUP_GUIDE.md](SETUP_GUIDE.md) for a step-by-step
+> walkthrough with every question explained, covering both fresh installs and
+> existing Gitea instances.
+
+### Prerequisites
 
 ```sh
-node node_modules/thepopebot/setup/setup-gitea.mjs
-# or, if working from source:
+# 1. Install deps first — required before the wizard can run
+npm install
+
+# 2. Run the wizard
 node setup/setup-gitea.mjs
+# or, if installed via npx:
+node node_modules/thepopebot/setup/setup-gitea.mjs
 ```
 
-The wizard walks through six steps and handles everything automatically:
+> The wizard auto-runs `npm install` if it detects missing dependencies, but
+> running it manually first avoids any confusion.
+
+The wizard walks through seven steps and handles everything automatically:
 
 | Step | What it does |
 |---|---|
-| **1 — Gitea instance** | **Docker mode** (default): prompts for a compose directory (default `./gitea-stack`), HTTP port (default `3000`), domain, and admin credentials, then writes `docker-compose.yml` + `runner-config.yaml`, starts Gitea, creates the admin user via the CLI, generates a runner registration token, creates a PAT, and starts the Actions runner. **Existing mode**: asks for the URL and admin credentials, then creates a PAT. |
+| **1 — Gitea instance** | **Docker mode**: writes `docker-compose.yml` + `runner-config.yaml`, starts Gitea, creates the admin user, generates a runner token, and starts the Actions runner. **Existing mode**: connects to your running Gitea and creates a PAT. |
 | **2 — Repository** | Creates (or finds) the bot repository on Gitea. |
 | **3 — Push** | Optionally initialises git and force-pushes the project. |
 | **4 — LLM** | Selects provider, model, and API key. |
 | **5 — Job image** | Published `stephengpope/thepopebot` images or a custom Docker image URL. |
+| **5b — Fork source** | Git URL + branch for `rebuild-agent-image` and `sync-from-fork` workflows. |
 | **6 — Apply** | Sets all repo variables and secrets; writes `.env`. |
+| **7 — Web UI** | Pulls the event handler image, starts the container, and runs a self-test. |
 
 ### Flags
 
