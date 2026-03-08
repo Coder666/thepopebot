@@ -17,10 +17,11 @@ import {
   confirm, select, spinner, log, note, isCancel,
 } from '@clack/prompts';
 import { execSync, spawnSync } from 'child_process';
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
+import { existsSync, readFileSync, mkdirSync } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { randomBytes } from 'crypto';
+import { writeEnvKey } from './lib/env.mjs';
 
 // ─── CLI flags ────────────────────────────────────────────────────────────────
 
@@ -52,17 +53,13 @@ function readEnv(filePath = ENV_PATH) {
   return env;
 }
 
-function writeEnvKey(key, value, filePath = ENV_PATH) {
+function _writeEnvKey(key, value, filePath = ENV_PATH) {
   const isSensitive = /token|key|secret|pass/i.test(key);
   if (DRY_RUN) {
     log.info(`[dry-run] .env: ${key}=${isSensitive ? '***' : value}`);
     return;
   }
-  let c = existsSync(filePath) ? readFileSync(filePath, 'utf-8') : '';
-  const re = new RegExp(`^${key}=.*$`, 'm');
-  const line = `${key}=${value}`;
-  c = re.test(c) ? c.replace(re, line) : (c.trimEnd() + '\n' + line + '\n');
-  writeFileSync(filePath, c);
+  writeEnvKey(key, value, filePath);
 }
 
 async function giteaAPI(baseUrl, token, method, endpoint, body) {
@@ -679,20 +676,20 @@ sp_env.start('Updating .env…');
 // Docker mode; via the external URL when connecting to an existing instance.
 const internalGiteaUrl = gitea_mode === 'docker' ? 'http://gitea:3000' : giteaUrl;
 
-writeEnvKey('GH_WRAPPER_BACKEND', 'gitea'          );
-writeEnvKey('GITEA_URL',           internalGiteaUrl );
-writeEnvKey('GITEA_TOKEN',         giteaToken       );
-writeEnvKey('GH_OWNER',            owner            );
-writeEnvKey('GH_REPO',             repoName         );
-writeEnvKey('LLM_PROVIDER',        llmProvider      );
-writeEnvKey('LLM_MODEL',           llmModel         );
-if (openaiBaseUrl)                      writeEnvKey('OPENAI_BASE_URL', openaiBaseUrl);
-if (llmApiKey && llmProvider !== 'custom') writeEnvKey(`${llmProvider.toUpperCase()}_API_KEY`, llmApiKey);
-if (llmApiKey && llmProvider === 'custom') writeEnvKey('CUSTOM_API_KEY', llmApiKey);
-if (needsQuirks)                        writeEnvKey('GITEA_QUIRKS',    '1.25'       );
-if (gitea_mode === 'docker')            writeEnvKey('GITEA_COMPOSE_DIR', composeDir );
-if (forkRepoUrl.trim())                 writeEnvKey('FORK_REPO_URL',   forkRepoUrl.trim());
-if (forkBranch.trim())                  writeEnvKey('FORK_BRANCH',     forkBranch.trim());
+_writeEnvKey('GH_WRAPPER_BACKEND', 'gitea'          );
+_writeEnvKey('GITEA_URL',           internalGiteaUrl );
+_writeEnvKey('GITEA_TOKEN',         giteaToken       );
+_writeEnvKey('GH_OWNER',            owner            );
+_writeEnvKey('GH_REPO',             repoName         );
+_writeEnvKey('LLM_PROVIDER',        llmProvider      );
+_writeEnvKey('LLM_MODEL',           llmModel         );
+if (openaiBaseUrl)                      _writeEnvKey('OPENAI_BASE_URL', openaiBaseUrl);
+if (llmApiKey && llmProvider !== 'custom') _writeEnvKey(`${llmProvider.toUpperCase()}_API_KEY`, llmApiKey);
+if (llmApiKey && llmProvider === 'custom') _writeEnvKey('CUSTOM_API_KEY', llmApiKey);
+if (needsQuirks)                        _writeEnvKey('GITEA_QUIRKS',    '1.25'       );
+if (gitea_mode === 'docker')            _writeEnvKey('GITEA_COMPOSE_DIR', composeDir );
+if (forkRepoUrl.trim())                 _writeEnvKey('FORK_REPO_URL',   forkRepoUrl.trim());
+if (forkBranch.trim())                  _writeEnvKey('FORK_BRANCH',     forkBranch.trim());
 
 sp_env.stop(`.env updated ✓`);
 
