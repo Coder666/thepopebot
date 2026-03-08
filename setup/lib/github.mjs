@@ -7,6 +7,23 @@ const execAsync = promisify(exec);
 
 const isGiteaBackend = () => process.env.GH_WRAPPER_BACKEND === 'gitea';
 const giteaUrl = () => (process.env.GITEA_URL || '').replace(/\/$/, '');
+const giteaToken = () => process.env.GITEA_TOKEN || '';
+
+async function giteaAPI(method, endpoint, body) {
+  const url = `${giteaUrl()}/api/v1/${endpoint.replace(/^\//, '')}`;
+  const res = await fetch(url, {
+    method,
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+      Authorization: `token ${giteaToken()}`,
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  let data;
+  try { data = await res.json(); } catch { data = {}; }
+  return { ok: res.ok, status: res.status, data };
+}
 
 /**
  * Validate a token by making a test API call.
@@ -88,9 +105,16 @@ export async function checkPATScopes(token) {
 }
 
 /**
- * Set a GitHub repository secret using gh CLI
+ * Set a repository secret.
+ * On Gitea: PUT /api/v1/repos/{owner}/{repo}/actions/secrets/{name}
+ * On GitHub: gh secret set
  */
 export async function setSecret(owner, repo, name, value) {
+  if (isGiteaBackend()) {
+    const encoded = Buffer.from(value).toString('base64');
+    const r = await giteaAPI('PUT', `repos/${owner}/${repo}/actions/secrets/${name}`, { data: encoded, name });
+    return r.ok ? { success: true } : { success: false, error: JSON.stringify(r.data) };
+  }
   try {
     execSync(
       `gh secret set ${name} --repo ${owner}/${repo}`,
@@ -114,9 +138,17 @@ export async function setSecrets(owner, repo, secrets) {
 }
 
 /**
- * List existing secrets
+ * List existing secrets.
+ * On Gitea: GET /api/v1/repos/{owner}/{repo}/actions/secrets
+ * On GitHub: gh secret list
  */
 export async function listSecrets(owner, repo) {
+  if (isGiteaBackend()) {
+    const r = await giteaAPI('GET', `repos/${owner}/${repo}/actions/secrets`);
+    if (!r.ok) return [];
+    const items = r.data?.data ?? r.data ?? [];
+    return Array.isArray(items) ? items.map(s => s.name) : [];
+  }
   try {
     const { stdout } = await execAsync(`gh secret list --repo ${owner}/${repo}`, {
       encoding: 'utf-8',
@@ -134,9 +166,20 @@ export async function listSecrets(owner, repo) {
 }
 
 /**
- * Set a GitHub repository variable using gh CLI
+ * Set a repository variable.
+ * On Gitea: PUT (update) with POST (create) fallback
+ * On GitHub: gh variable set
  */
 export async function setVariable(owner, repo, name, value) {
+  if (isGiteaBackend()) {
+    const ep = `repos/${owner}/${repo}/actions/variables/${name}`;
+    const r = await giteaAPI('PUT', ep, { name, value });
+    if (!r.ok && r.status === 404) {
+      const r2 = await giteaAPI('POST', ep, { name, value });
+      return r2.ok ? { success: true } : { success: false, error: JSON.stringify(r2.data) };
+    }
+    return r.ok ? { success: true } : { success: false, error: JSON.stringify(r.data) };
+  }
   try {
     execSync(
       `gh variable set ${name} --repo ${owner}/${repo}`,
