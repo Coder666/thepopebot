@@ -596,6 +596,29 @@ if (jobImageMode === 'custom') {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// STEP 5b: Fork source (used by rebuild-agent-image and sync-from-fork workflows)
+// ─────────────────────────────────────────────────────────────────────────────
+
+log.step('Step 5b/6 — Fork source (for rebuild and auto-sync workflows)');
+
+const forkRepoUrl = await text({
+  message: 'Git URL of the pope-bot fork to build from and sync with',
+  placeholder: 'https://github.com/your-org/thepopebot.git',
+  initialValue: existingEnv.FORK_REPO_URL || '',
+  hint: 'Used by rebuild-agent-image and sync-from-fork workflows. Use HTTPS for public repos, SSH for private.',
+  validate: v => v.trim() ? undefined : 'Required',
+});
+if (sym(forkRepoUrl)) process.exit(0);
+
+const forkBranch = await text({
+  message: 'Default branch to build/sync from',
+  placeholder: 'feature/all-features',
+  initialValue: existingEnv.FORK_BRANCH || 'feature/all-features',
+  validate: v => v.trim() ? undefined : 'Required',
+});
+if (sym(forkBranch)) process.exit(0);
+
+// ─────────────────────────────────────────────────────────────────────────────
 // STEP 6: Apply configuration
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -624,8 +647,10 @@ const varsToSet = [
   ['LLM_MODEL',          llmModel       ],
   ['RUNS_ON',            'ubuntu-latest'],
 ];
-if (openaiBaseUrl) varsToSet.push(['OPENAI_BASE_URL', openaiBaseUrl]);
-if (jobImageUrl)   varsToSet.push(['JOB_IMAGE_URL',   jobImageUrl  ]);
+if (openaiBaseUrl)        varsToSet.push(['OPENAI_BASE_URL', openaiBaseUrl]);
+if (jobImageUrl)          varsToSet.push(['JOB_IMAGE_URL',   jobImageUrl  ]);
+if (forkRepoUrl.trim())   varsToSet.push(['FORK_REPO_URL',   forkRepoUrl.trim()]);
+if (forkBranch.trim())    varsToSet.push(['FORK_BRANCH',     forkBranch.trim()]);
 
 for (const [name, value] of varsToSet) {
   await setVar(giteaUrl, giteaToken, owner, repoName, name, value);
@@ -666,6 +691,8 @@ if (llmApiKey && llmProvider !== 'custom') writeEnvKey(`${llmProvider.toUpperCas
 if (llmApiKey && llmProvider === 'custom') writeEnvKey('CUSTOM_API_KEY', llmApiKey);
 if (needsQuirks)                        writeEnvKey('GITEA_QUIRKS',    '1.25'       );
 if (gitea_mode === 'docker')            writeEnvKey('GITEA_COMPOSE_DIR', composeDir );
+if (forkRepoUrl.trim())                 writeEnvKey('FORK_REPO_URL',   forkRepoUrl.trim());
+if (forkBranch.trim())                  writeEnvKey('FORK_BRANCH',     forkBranch.trim());
 
 sp_env.stop(`.env updated ✓`);
 
