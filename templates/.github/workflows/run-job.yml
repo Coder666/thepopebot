@@ -67,7 +67,7 @@ jobs:
         run: |
           AGENT_BACKEND="${AGENT_BACKEND:-pi}"
           if [ -n "$JOB_IMAGE_URL" ]; then
-            IMAGE="${JOB_IMAGE_URL}:latest"
+            IMAGE="${JOB_IMAGE_URL}"
           elif [ "$AGENT_BACKEND" = "claude-code" ]; then
             IMAGE="stephengpope/thepopebot:claude-code-job-${THEPOPEBOT_VERSION}"
           else

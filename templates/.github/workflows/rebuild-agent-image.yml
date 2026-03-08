@@ -1,0 +1,35 @@
+name: Rebuild Agent Image
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch of pope-bot fork to build from (default: feature/all-features)'
+        required: false
+        default: 'feature/all-features'
+
+jobs:
+  rebuild:
+    runs-on: self-hosted
+    timeout-minutes: 30
+    steps:
+      - name: Build agent image from fork
+        env:
+          FORK_BRANCH: ${{ github.event.inputs.branch || 'feature/all-features' }}
+        run: |
+          BUILD_DIR=$(mktemp -d)
+          GITEA_URL="${{ github.server_url }}"
+
+          # Clone the pope-bot fork
+          git clone --depth 1 --branch "$FORK_BRANCH" \
+            "${GITEA_URL}/admin/pope-bot.git" "$BUILD_DIR"
+
+          # Build the agent image (context = repo root so lib/gh-wrapper is accessible)
+          docker build \
+            -t thepopebot-local:pi-coding-agent-job \
+            -f "$BUILD_DIR/templates/docker/pi-coding-agent-job/Dockerfile" \
+            "$BUILD_DIR"
+
+          rm -rf "$BUILD_DIR"
+          echo "Built thepopebot-local:pi-coding-agent-job from ${FORK_BRANCH}"
+          docker images thepopebot-local:pi-coding-agent-job
