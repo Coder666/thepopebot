@@ -1,3 +1,5 @@
+![Tests](https://github.com/stephengpope/thepopebot/actions/workflows/test.yml/badge.svg)
+
 # Why thepopebot?
 
 **The repository IS the agent** — Every action your agent takes is a git commit. You can see exactly what it did, when, and why. If it screws up, revert it. Want to clone your agent? Fork the repo — code, personality, scheduled jobs, full history, all of it goes with your fork.
@@ -291,6 +293,23 @@ See [Running Different Models](docs/RUNNING_DIFFERENT_MODELS.md) for the full gu
 
 ---
 
+## Self-Hosted with Gitea
+
+thepopebot can run entirely on your own hardware — no GitHub required. Swap in a self-hosted [Gitea](https://gitea.io) instance and the agent works exactly as it does on GitHub: pull requests, Actions workflows, secrets, repo variables, auto-merge, the works.
+
+**Why self-host?**
+- Full control over your code, data, and compute — nothing leaves your network
+- No GitHub Actions minute limits; run jobs on your own runners indefinitely
+- Works on a Raspberry Pi, a home server, or a VPS
+
+**How it works:** thepopebot ships a `gh`-compatible shim (`lib/gh-wrapper`) that translates standard `gh` CLI calls into Gitea REST API calls. The Docker agent is unmodified — it still calls `gh pr create`, `gh release create`, etc., and the shim handles the routing transparently.
+
+A dedicated setup wizard (`npx thepopebot setup-gitea`) configures everything: Gitea URL, admin token, SSH key, runner registration, Docker stack, and repo secrets — interactively, in one command.
+
+→ **[Full Gitea integration guide](docs/GITEA.md)**
+
+---
+
 ## Docs
 
 | Document | Description |
@@ -304,6 +323,7 @@ See [Running Different Models](docs/RUNNING_DIFFERENT_MODELS.md) for the full gu
 | [Deployment](docs/DEPLOYMENT.md) | VPS setup, Docker Compose, HTTPS with Let's Encrypt |
 | [Claude Code vs Pi](docs/CLAUDE_CODE_VS_PI.md) | Comparing the two agent backends (subscription vs API credits) |
 | [How to Build Skills](docs/HOW_TO_BUILD_SKILLS.md) | Guide to building and activating agent skills |
+| [Gitea Integration](docs/GITEA.md) | Self-hosted Gitea setup, gh-wrapper shim, setup wizard |
 | [Pre-Release](docs/PRE_RELEASE.md) | Installing beta/alpha builds |
 | [Security](docs/SECURITY.md) | Security disclaimer, local development risks |
 | [Upgrading](docs/UPGRADE.md) | Automated upgrades, recovering from failed upgrades |
