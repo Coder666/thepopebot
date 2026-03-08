@@ -18,11 +18,10 @@ jobs:
           FORK_BRANCH: ${{ github.event.inputs.branch || 'feature/all-features' }}
         run: |
           BUILD_DIR=$(mktemp -d)
-          GITEA_URL="${{ github.server_url }}"
 
-          # Clone the pope-bot fork
+          # Clone via SSH (key configured in ~/.ssh/config as gitea-local)
           git clone --depth 1 --branch "$FORK_BRANCH" \
-            "${GITEA_URL}/admin/pope-bot.git" "$BUILD_DIR"
+            ssh://gitea-local/admin/pope-bot.git "$BUILD_DIR"
 
           # Build the agent image (context = repo root so lib/gh-wrapper is accessible)
           docker build \
