@@ -538,6 +538,10 @@ if (sym(llmModel)) process.exit(0);
 let llmApiKey    = '';
 let openaiBaseUrl = '';
 
+// Detect existing key in .env so re-runs can skip re-entry
+const existingKeyEnvVar = llmProvider === 'custom' ? 'CUSTOM_API_KEY' : `${llmProvider.toUpperCase()}_API_KEY`;
+const hasExistingKey = !!existingEnv[existingKeyEnvVar];
+
 if (llmProvider === 'custom') {
   openaiBaseUrl = await text({
     message: 'OpenAI-compatible base URL',
@@ -548,15 +552,18 @@ if (llmProvider === 'custom') {
   if (sym(openaiBaseUrl)) process.exit(0);
 
   llmApiKey = await promptPassword({
-    message: 'API key  (press Enter to skip if no authentication is required)',
+    message: 'API key  (press Enter to skip or keep existing)',
   });
   if (sym(llmApiKey)) process.exit(0);
+  if (!llmApiKey.trim() && hasExistingKey) llmApiKey = existingEnv[existingKeyEnvVar];
 } else {
+  const keyPrompt = hasExistingKey ? `${llmProvider[0].toUpperCase() + llmProvider.slice(1)} API key  (press Enter to keep existing)` : `${llmProvider[0].toUpperCase() + llmProvider.slice(1)} API key`;
   llmApiKey = await promptPassword({
-    message: `${llmProvider[0].toUpperCase() + llmProvider.slice(1)} API key`,
-    validate: v => v.trim() ? undefined : 'Required',
+    message: keyPrompt,
+    validate: v => (v.trim() || hasExistingKey) ? undefined : 'Required',
   });
   if (sym(llmApiKey)) process.exit(0);
+  if (!llmApiKey.trim() && hasExistingKey) llmApiKey = existingEnv[existingKeyEnvVar];
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
