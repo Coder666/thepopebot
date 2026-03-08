@@ -132,7 +132,7 @@ Every question the wizard asks, the default answer, and what it means in practic
 **[Fresh Gitea only] Q: Hostname / domain for Gitea**
 
 - Default: `localhost`
-- What it means: Gitea uses this in the clone URLs it shows you (e.g. `git clone http://localhost:3000/admin/mybot.git`). If you want to access Gitea from other machines on your network, use your machine's LAN hostname or IP (e.g. `atlas.local` or `192.168.1.10`).
+- What it means: Gitea uses this in the clone URLs it shows you (e.g. `git clone http://localhost:3000/admin/mybot.git`). If you want to access Gitea from other machines on your network, use your machine's LAN hostname or IP (e.g. `myserver.local` or `192.168.1.10`).
 
 ---
 
@@ -273,7 +273,7 @@ No questions — the wizard automatically:
 **Q: Hostname / IP where you will access the UI**
 
 - Default: `localhost`
-- What it means: This sets the `APP_URL` in `.env`, which thepopebot uses for auth callbacks and redirects. **If you want to access the UI from another machine** (phone, laptop, etc.), put your server's LAN hostname or IP here (e.g. `atlas.local` or `192.168.1.10`). If you use `localhost` but then try to open the UI from another machine, login will redirect to `localhost` and break.
+- What it means: This sets the `APP_URL` in `.env`, which thepopebot uses for auth callbacks and redirects. **If you want to access the UI from another machine** (phone, laptop, etc.), put your server's LAN hostname or IP here (e.g. `myserver.local` or `192.168.1.10`). If you use `localhost` but then try to open the UI from another machine, login will redirect to `localhost` and break.
 
 ---
 
