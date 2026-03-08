@@ -293,6 +293,56 @@ See [Running Different Models](docs/RUNNING_DIFFERENT_MODELS.md) for the full gu
 
 ---
 
+## Personas
+
+Give your bot different identities, roles, and behaviours. A single installation can run as multiple distinct personas — each with its own personality file, tool set, and system prompt — or you can wire several bot instances together so they delegate work to each other over HTTP.
+
+**Use cases:**
+- A *manager* persona that breaks large tasks into jobs and dispatches them to subordinate bots
+- A *worker* persona that focuses only on executing tasks and reporting back
+- Per-project personas that keep separate context and different personalities in different chats
+
+**Quick setup:**
+
+1. Edit `config/PERSONAS.json` to define your personas (a `default` is pre-configured)
+2. Add a Markdown file per persona in `config/personas/` (e.g. `personas/manager.md`) that describes the persona's role, tone, and behaviour
+3. Select a persona in the web chat UI — the dropdown appears in the sidebar
+
+Multi-bot orchestration (a `manager` dispatching to a `worker` running on a different URL) is configured with `subordinates` and `reportsTo` fields in `PERSONAS.json`.
+
+→ **[Full Personas guide](docs/PERSONAS.md)**
+
+---
+
+## Chat History Search
+
+The agent can search past conversations using full-text search over the SQLite message store. When a user says "remember when we talked about X?" or asks about a past decision, the agent calls a `search_chat_history` tool and retrieves relevant snippets — without keeping all history in context.
+
+Indexing is automatic: an SQLite FTS5 virtual table is kept in sync with new and deleted messages via database triggers. No external services or embeddings required.
+
+→ **[Chat History Search details](docs/RAG.md)**
+
+---
+
+## Token Budget (Local LLM Support)
+
+Context-window overflow is the most common failure mode when running local LLMs (Ollama, LM Studio, llama.cpp). The token budget feature prevents it automatically:
+
+- **Message trimming** — oldest messages are dropped when conversation history would exceed the window, always preserving the system prompt and the most recent turns
+- **Tool output truncation** — large file reads (CLAUDE.md, skill guides, repo files) are capped before they saturate context
+
+Token counting uses a fast character-based approximation (1 token ≈ 4 chars), with no external dependencies — safe for offline and air-gapped environments.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `TOKEN_BUDGET_ENABLED` | `true` | Set to `false` to disable |
+| `CONTEXT_WINDOW` | `8192` | Model's context window in tokens |
+| `RESPONSE_RESERVE` | `1024` | Tokens kept free for the model's response |
+
+→ **[Token Budget details](docs/TOKEN_BUDGET.md)**
+
+---
+
 ## Self-Hosted with Gitea
 
 thepopebot can run entirely on your own hardware — no GitHub required. Swap in a self-hosted [Gitea](https://gitea.io) instance and the agent works exactly as it does on GitHub: pull requests, Actions workflows, secrets, repo variables, auto-merge, the works.
@@ -324,6 +374,10 @@ A dedicated setup wizard (`npx thepopebot setup-gitea`) configures everything: G
 | [Claude Code vs Pi](docs/CLAUDE_CODE_VS_PI.md) | Comparing the two agent backends (subscription vs API credits) |
 | [How to Build Skills](docs/HOW_TO_BUILD_SKILLS.md) | Guide to building and activating agent skills |
 | [Gitea Integration](docs/GITEA.md) | Self-hosted Gitea setup, gh-wrapper shim, setup wizard |
+| [Gitea Setup Guide](docs/SETUP_GUIDE.md) | Step-by-step walkthrough of every setup wizard prompt |
+| [Personas](docs/PERSONAS.md) | Multi-persona configuration, multi-bot orchestration |
+| [Chat History Search](docs/RAG.md) | SQLite FTS5 full-text search over past conversations |
+| [Token Budget](docs/TOKEN_BUDGET.md) | Context-window management for local LLMs |
 | [Pre-Release](docs/PRE_RELEASE.md) | Installing beta/alpha builds |
 | [Security](docs/SECURITY.md) | Security disclaimer, local development risks |
 | [Upgrading](docs/UPGRADE.md) | Automated upgrades, recovering from failed upgrades |
