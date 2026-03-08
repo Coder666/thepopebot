@@ -12,16 +12,41 @@
  *   node setup/setup-gitea.mjs --project /path/to/project
  */
 
-import {
-  intro, outro, text, password as promptPassword,
-  confirm, select, spinner, log, note, isCancel,
-} from '@clack/prompts';
-import { execSync, spawnSync } from 'child_process';
-import { existsSync, readFileSync, mkdirSync } from 'fs';
+// ─── Built-in + local imports only — these work before npm install ────────────
+import { existsSync, readFileSync, mkdirSync, writeFileSync } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { randomBytes } from 'crypto';
+import { execSync, spawnSync } from 'child_process';
 import { writeEnvKey } from './lib/env.mjs';
+
+const __filename_setup = fileURLToPath(import.meta.url);
+const SETUP_DIR        = path.dirname(__filename_setup);
+const PKG_ROOT         = path.resolve(SETUP_DIR, '..');   // thepopebot package root
+
+// ─── Pre-flight: auto-install npm deps on first run ───────────────────────────
+if (!existsSync(path.join(PKG_ROOT, 'node_modules', '@clack', 'prompts'))) {
+  process.stdout.write(
+    '\n📦  Dependencies not found — running npm install (first run only)…\n\n'
+  );
+  try {
+    execSync('npm install', { stdio: 'inherit', cwd: PKG_ROOT });
+    process.stdout.write('\n✓  Dependencies installed. Continuing setup…\n\n');
+  } catch {
+    process.stderr.write(
+      '\n✗  npm install failed.\n' +
+      '   Fix the error above, then run:\n' +
+      '     npm install && node setup/setup-gitea.mjs\n\n'
+    );
+    process.exit(1);
+  }
+}
+
+// ─── Third-party imports (safe now that deps are installed) ───────────────────
+const {
+  intro, outro, text, password: promptPassword,
+  confirm, select, spinner, log, note, isCancel,
+} = await import('@clack/prompts');
 
 // ─── CLI flags ────────────────────────────────────────────────────────────────
 
@@ -144,6 +169,38 @@ function waitHealthy(container, maxSeconds = 180) {
   bail(`Timed out waiting for ${container} — run: docker logs ${container}`);
 }
 
+/** Poll the event-handler /api/ping until it responds OK (max 60 s). */
+async function selfTestEventHandler(port) {
+  if (DRY_RUN) {
+    log.info(`[dry-run] Would test: GET http://localhost:${port}/api/ping`);
+    return true;
+  }
+  const sp = spinner();
+  sp.start(`Testing web UI at http://localhost:${port}/api/ping…`);
+  const deadline = Date.now() + 60_000;
+  let lastErr = '';
+  while (Date.now() < deadline) {
+    try {
+      const res = await fetch(`http://localhost:${port}/api/ping`, {
+        signal: AbortSignal.timeout(3000),
+      });
+      if (res.ok || res.status < 500) {
+        sp.stop(`Web UI is up ✓   http://localhost:${port}`);
+        return true;
+      }
+      lastErr = `HTTP ${res.status}`;
+    } catch (e) {
+      lastErr = e.message;
+    }
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 3000);
+  }
+  sp.stop('');
+  log.warn(`Web UI did not respond within 60 s. Last error: ${lastErr}`);
+  log.warn(`Check logs:   docker logs thepopebot`);
+  log.warn(`Manual test:  curl http://localhost:${port}/api/ping`);
+  return false;
+}
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 intro(`  thepopebot — Gitea setup wizard${DRY_RUN ? '  [DRY RUN]' : ''}  `);
@@ -155,7 +212,7 @@ const existingEnv = readEnv();
 // STEP 1: Gitea instance
 // ─────────────────────────────────────────────────────────────────────────────
 
-log.step('Step 1/6 — Gitea instance');
+log.step('Step 1/7 — Gitea instance');
 
 const gitea_mode = await select({
   message: 'How do you want to connect to Gitea?',
@@ -439,7 +496,7 @@ container:
 // STEP 2: Repository
 // ─────────────────────────────────────────────────────────────────────────────
 
-log.step('Step 2/6 — Bot repository');
+log.step('Step 2/7 — Bot repository');
 
 const defaultRepoName = existingEnv.GH_REPO || path.basename(PROJECT_ROOT);
 const repoName = await text({
@@ -471,7 +528,7 @@ if (getRepo.ok && getRepo.data.full_name) {
 // STEP 3: Push project
 // ─────────────────────────────────────────────────────────────────────────────
 
-log.step('Step 3/6 — Push project to Gitea');
+log.step('Step 3/7 — Push project to Gitea');
 
 const hasGit = existsSync(path.join(PROJECT_ROOT, '.git'));
 const shouldPush = await confirm({
@@ -508,7 +565,7 @@ if (shouldPush) {
 // STEP 4: LLM configuration
 // ─────────────────────────────────────────────────────────────────────────────
 
-log.step('Step 4/6 — LLM configuration');
+log.step('Step 4/7 — LLM configuration');
 
 const llmProvider = await select({
   message: 'LLM provider for agent jobs',
@@ -570,7 +627,7 @@ if (llmProvider === 'custom') {
 // STEP 5: Agent job image source
 // ─────────────────────────────────────────────────────────────────────────────
 
-log.step('Step 5/6 — Agent job image');
+log.step('Step 5/7 — Agent job image');
 
 const jobImageMode = await select({
   message: 'Which Docker image should agent jobs use?',
@@ -603,7 +660,7 @@ if (jobImageMode === 'custom') {
 // STEP 5b: Fork source (used by rebuild-agent-image and sync-from-fork workflows)
 // ─────────────────────────────────────────────────────────────────────────────
 
-log.step('Step 5b/6 — Fork source (for rebuild and auto-sync workflows)');
+log.step('Step 5b/7 — Fork source (for rebuild and auto-sync workflows)');
 
 const forkRepoUrl = await text({
   message: 'Git URL of the pope-bot fork to build from and sync with',
@@ -626,7 +683,7 @@ if (sym(forkBranch)) process.exit(0);
 // STEP 6: Apply configuration
 // ─────────────────────────────────────────────────────────────────────────────
 
-log.step('Step 6/6 — Configuring repo and writing .env');
+log.step('Step 6/7 — Configuring repo and writing .env');
 
 // Detect Gitea version for quirks
 const versionRes  = await giteaAPI(giteaUrl, giteaToken, 'GET', 'version');
@@ -700,26 +757,209 @@ if (forkBranch.trim())                  _writeEnvKey('FORK_BRANCH',     forkBran
 
 sp_env.stop(`.env updated ✓`);
 
+// ─────────────────────────────────────────────────────────────────────────────
+// STEP 7: Start event handler (web UI)
+// ─────────────────────────────────────────────────────────────────────────────
+
+log.step('Step 7/7 — Web UI (event handler)');
+
+let uiPort       = existingEnv.THEPOPEBOT_PORT || '3001';
+let uiHostname   = existingEnv.APP_HOSTNAME    || 'localhost';
+let uiComposeFile = path.join(PROJECT_ROOT, 'docker-compose.yml');
+let uiStarted    = false;
+
+if (!dockerAvailable() && !DRY_RUN) {
+  log.warn('Docker is not available — skipping web UI setup.');
+  log.warn('Install Docker and run the setup again, or start the UI manually (see docs/SETUP_GUIDE.md).');
+} else {
+  const startUI = await confirm({
+    message: 'Start the thepopebot web UI (event handler) with Docker now?',
+    initialValue: true,
+  });
+  if (sym(startUI)) process.exit(0);
+
+  if (startUI) {
+    uiPort = await text({
+      message: 'Host port for the web UI',
+      placeholder: '3001',
+      initialValue: existingEnv.THEPOPEBOT_PORT || '3001',
+      validate: v => /^\d+$/.test(v.trim()) ? undefined : 'Must be a port number',
+    });
+    if (sym(uiPort)) process.exit(0);
+
+    uiHostname = await text({
+      message: 'Hostname / IP where you will access the UI  (used to set APP_URL)',
+      placeholder: 'localhost',
+      initialValue: existingEnv.APP_HOSTNAME || 'localhost',
+      hint: 'Use the machine\'s LAN hostname or IP if accessing from another device.',
+    });
+    if (sym(uiHostname)) process.exit(0);
+
+    const appUrl = `http://${uiHostname}:${uiPort}`;
+    _writeEnvKey('APP_URL',         appUrl );
+    _writeEnvKey('APP_HOSTNAME',    uiHostname );
+    _writeEnvKey('THEPOPEBOT_PORT', uiPort );
+    if (!existingEnv.AUTH_SECRET) {
+      _writeEnvKey('AUTH_SECRET', randomBytes(32).toString('hex'));
+    }
+
+    // ── Build / write the compose file for the event handler ──────────────
+    // Always use a dedicated file so we never overwrite an existing
+    // docker-compose.yml (which might have Traefik on ports 80/443 or other
+    // services the user doesn't want touched).
+    const ehImage = existingEnv.EVENT_HANDLER_IMAGE_URL ||
+      'stephengpope/thepopebot:event-handler-latest';
+
+    let uiComposeDir = PROJECT_ROOT;
+
+    if (gitea_mode === 'docker') {
+      // Append thepopebot to the gitea-stack compose so it can reach `gitea`
+      // by container hostname on the same Docker network.
+      uiComposeDir  = composeDir;
+      uiComposeFile = path.join(composeDir, 'docker-compose.yml');
+      const stackContent = readFileSync(uiComposeFile, 'utf-8');
+      if (!stackContent.includes('thepopebot:')) {
+        const svc = `
+  # ── thepopebot event handler ──────────────────────────────────────────────
+  thepopebot:
+    image: ${ehImage}
+    container_name: thepopebot
+    restart: unless-stopped
+    depends_on:
+      - gitea
+    env_file:
+      - ${ENV_PATH}
+    volumes:
+      - ${PROJECT_ROOT}:/app
+    ports:
+      - "${uiPort}:80"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80/api/ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 30s
+    networks:
+      - gitea-internal
+`;
+        if (!DRY_RUN) {
+          writeFileSync(uiComposeFile, stackContent.replace(/\nnetworks:/, svc + '\nnetworks:'));
+          log.info(`Added thepopebot service to ${uiComposeFile}`);
+        } else {
+          log.info(`[dry-run] Would add thepopebot service to ${uiComposeFile}`);
+        }
+      }
+    } else {
+      // Existing Gitea: write a SEPARATE dedicated compose file.
+      // Named docker-compose.popebot.yml so it never conflicts with whatever
+      // compose setup the user already has (Traefik on 80/443, etc.).
+      uiComposeFile = path.join(PROJECT_ROOT, 'docker-compose.popebot.yml');
+      const standalone = `# thepopebot event handler — generated by setup-gitea.mjs
+# This file is separate from any existing docker-compose.yml.
+#
+# Start:    docker compose -f docker-compose.popebot.yml up -d
+# Stop:     docker compose -f docker-compose.popebot.yml down
+# Logs:     docker logs -f thepopebot
+# Restart:  docker compose -f docker-compose.popebot.yml restart
+#
+# The host port below (${uiPort}) was set during setup.
+# To change it: edit THEPOPEBOT_PORT in .env and restart.
+
+services:
+  thepopebot:
+    image: ${ehImage}
+    container_name: thepopebot
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - .:/app
+    ports:
+      - "\${THEPOPEBOT_PORT:-${uiPort}}:80"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80/api/ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 30s
+`;
+      if (!DRY_RUN) {
+        writeFileSync(uiComposeFile, standalone);
+        log.info(`Wrote ${uiComposeFile}`);
+      } else {
+        log.info(`[dry-run] Would write ${uiComposeFile}`);
+      }
+    }
+
+    // ── Pull + start event handler ─────────────────────────────────────────
+    const sp_ui = spinner();
+    sp_ui.start('Pulling event handler image…');
+    if (!DRY_RUN) {
+      try {
+        run(`docker compose -f "${uiComposeFile}" pull thepopebot`);
+        sp_ui.stop('Image pulled ✓');
+      } catch {
+        sp_ui.stop('Pull skipped (image may already be cached)');
+      }
+      const sp_up = spinner();
+      sp_up.start('Starting event handler…');
+      try {
+        run(`docker compose -f "${uiComposeFile}" up -d thepopebot`);
+        sp_up.stop('Event handler started ✓');
+      } catch (e) {
+        sp_up.stop('');
+        log.warn(`Could not start event handler: ${e.message}`);
+        log.warn(`Try manually: docker compose -f "${uiComposeFile}" up -d thepopebot`);
+      }
+    } else {
+      sp_ui.stop(`[dry-run] Would start thepopebot via ${uiComposeFile}`);
+    }
+
+    // ── Self-test ──────────────────────────────────────────────────────────
+    uiStarted = await selfTestEventHandler(uiPort);
+  }
+}
+
 // ─── Summary ──────────────────────────────────────────────────────────────────
 
-outro(`Gitea setup ${DRY_RUN ? '(dry run) ' : ''}complete!`);
-
 const repoUrl = repo.html_url || `${giteaUrl}/${owner}/${repoName}`;
+
+outro(`Gitea setup ${DRY_RUN ? '(dry run) ' : ''}complete! 🎉`);
+
+const appUrl = `http://${uiHostname}:${uiPort}`;
 note([
-  `Gitea:    ${giteaUrl}`,
-  `Repo:     ${repoUrl}`,
-  `User:     ${owner}`,
-  giteaVersion ? `Version:  ${giteaVersion}${needsQuirks ? ' (quirks applied)' : ''}` : '',
+  `Gitea:      ${giteaUrl}`,
+  `Bot repo:   ${repoUrl}`,
+  `User:       ${owner}`,
+  giteaVersion ? `Version:    ${giteaVersion}${needsQuirks ? ' (quirks applied)' : ''}` : '',
+  uiStarted ? `Web UI:     ${appUrl}  ✓ running` : '',
   '',
-  'Next steps:',
-  '  1. Start (or restart) the event handler:',
-  '       docker compose up -d event-handler',
+  uiStarted
+    ? [
+        'Web UI is running! First login creates the admin account:',
+        `  1. Open  ${appUrl}  in your browser`,
+        '  2. Create your admin account (first visit only)',
+        '  3. Settings → API Keys → create a key',
+        '  4. Send a test job:',
+        `       curl -X POST ${appUrl}/api/jobs \\`,
+        "            -H 'x-api-key: YOUR_KEY' \\",
+        "            -d '{\"job\":\"say hello\"}'",
+        '',
+        'Manage the container:',
+        `       docker logs -f thepopebot`,
+        `       docker compose -f "${uiComposeFile}" restart`,
+        `       docker compose -f "${uiComposeFile}" down`,
+      ].join('\n')
+    : [
+        'Next steps:',
+        '  1. Start the web UI:',
+        gitea_mode === 'docker'
+          ? `       docker compose -f "${path.join(composeDir, 'docker-compose.yml')}" up -d thepopebot`
+          : `       docker compose -f "${uiComposeFile}" up -d`,
+        `  2. Open  ${appUrl}  (first login creates admin account)`,
+        '  3. Settings → API Keys → create a key',
+        '  4. See docs/SETUP_GUIDE.md for full instructions',
+      ].join('\n'),
   '',
-  '  2. Send a test job:',
-  '       curl -X POST http://localhost/api/jobs \\',
-  "            -H 'x-api-key: YOUR_API_KEY' \\",
-  "            -d '{\"job\":\"say hello from Gitea\"}'",
-  '',
-  gitea_mode === 'docker' ? `  3. Gitea compose dir: ${composeDir}` : '',
-  DRY_RUN ? '  ⚠  Dry run — no changes were made.' : '',
-].filter(Boolean).join('\n'), 'Summary');
+  gitea_mode === 'docker' ? `Gitea compose dir: ${composeDir}` : '',
+  DRY_RUN ? '⚠  Dry run — no changes were made.' : '',
+].filter(Boolean).join('\n'), 'Done');
