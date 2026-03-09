@@ -31,7 +31,6 @@ async function main() {
 
   // Track values for summary
   let botUsername = null;
-  let webhookUrl = null;
   let telegramChatId = null;
 
   // ─── Step 1: Prerequisites ──────────────────────────────────────────
@@ -55,56 +54,93 @@ async function main() {
     clack.log.info('Existing .env detected — previously configured values can be skipped.');
   }
 
-  // ─── Step 2: App URL ────────────────────────────────────────────────
-  clack.log.step(`[${++currentStep}/${TOTAL_STEPS}] App URL`);
-  clack.log.info('Your bot needs a public HTTPS URL so Telegram can deliver messages to it via webhook.');
-  clack.log.warn('Make sure your server is running and publicly accessible.');
+  // ─── Step 2: Telegram Mode ──────────────────────────────────────────
+  clack.log.step(`[${++currentStep}/${TOTAL_STEPS}] Telegram mode`);
+
+  const existingMode = env?.TELEGRAM_MODE || null;
+  let telegramMode = existingMode;
+
+  if (!telegramMode || !(await keepOrReconfigure('TELEGRAM_MODE', existingMode))) {
+    const mode = await clack.select({
+      message: 'How should Telegram deliver messages?',
+      options: [
+        {
+          label: 'Polling  (no public URL needed — bot polls Telegram)',
+          value: 'polling',
+          hint: 'Best for local/private networks. No ngrok or port forwarding required.',
+        },
+        {
+          label: 'Webhook  (Telegram pushes to your public HTTPS URL)',
+          value: 'webhook',
+          hint: 'Requires a publicly accessible HTTPS endpoint.',
+        },
+      ],
+      initialValue: existingMode || 'polling',
+    });
+    if (clack.isCancel(mode)) {
+      clack.cancel('Setup cancelled.');
+      process.exit(0);
+    }
+    telegramMode = mode;
+  }
+
+  updateEnvVariable('TELEGRAM_MODE', telegramMode);
+  clack.log.success(`Mode: ${telegramMode}`);
 
   let appUrl = null;
+  let webhookUrl = null;
 
-  if (await keepOrReconfigure('APP_URL', env?.APP_URL || null)) {
-    appUrl = env.APP_URL;
-  }
+  if (telegramMode === 'webhook') {
+    // ─── Webhook mode: need APP_URL ──────────────────────────────────
+    clack.log.info('Your bot needs a public HTTPS URL so Telegram can deliver messages to it via webhook.');
+    clack.log.warn('Make sure your server is running and publicly accessible.');
 
-  if (!appUrl) {
-    clack.log.info(
-      'Enter the public URL where your agent is running.\n' +
-      '  Examples:\n' +
-      '    ngrok: https://abc123.ngrok.io\n' +
-      '    VPS:   https://mybot.example.com\n' +
-      '    PaaS:  https://mybot.vercel.app'
-    );
-
-    while (!appUrl) {
-      const url = await clack.text({
-        message: 'Enter your APP_URL (https://...):',
-        validate: (input) => {
-          if (!input) return 'URL is required';
-          if (!input.startsWith('https://')) return 'URL must start with https://';
-        },
-      });
-      if (clack.isCancel(url)) {
-        clack.cancel('Setup cancelled.');
-        process.exit(0);
-      }
-      appUrl = url.replace(/\/$/, '');
+    if (await keepOrReconfigure('APP_URL', env?.APP_URL || null)) {
+      appUrl = env.APP_URL;
     }
-  }
 
-  // Update APP_URL and APP_HOSTNAME in .env
-  const appHostname = new URL(appUrl).hostname;
-  updateEnvVariable('APP_URL', appUrl);
-  updateEnvVariable('APP_HOSTNAME', appHostname);
-  clack.log.success('APP_URL saved to .env');
+    if (!appUrl) {
+      clack.log.info(
+        'Enter the public URL where your agent is running.\n' +
+        '  Examples:\n' +
+        '    ngrok: https://abc123.ngrok.io\n' +
+        '    VPS:   https://mybot.example.com\n' +
+        '    PaaS:  https://mybot.vercel.app'
+      );
 
-  // Set APP_URL variable on GitHub
-  const urlSpinner = clack.spinner();
-  urlSpinner.start('Updating APP_URL variable on GitHub...');
-  const urlResult = await setVariables(owner, repo, { APP_URL: appUrl });
-  if (urlResult.APP_URL.success) {
-    urlSpinner.stop('APP_URL variable updated on GitHub');
+      while (!appUrl) {
+        const url = await clack.text({
+          message: 'Enter your APP_URL (https://...):',
+          validate: (input) => {
+            if (!input) return 'URL is required';
+            if (!input.startsWith('https://')) return 'URL must start with https://';
+          },
+        });
+        if (clack.isCancel(url)) {
+          clack.cancel('Setup cancelled.');
+          process.exit(0);
+        }
+        appUrl = url.replace(/\/$/, '');
+      }
+    }
+
+    // Update APP_URL and APP_HOSTNAME in .env
+    const appHostname = new URL(appUrl).hostname;
+    updateEnvVariable('APP_URL', appUrl);
+    updateEnvVariable('APP_HOSTNAME', appHostname);
+    clack.log.success('APP_URL saved to .env');
+
+    // Set APP_URL variable on GitHub
+    const urlSpinner = clack.spinner();
+    urlSpinner.start('Updating APP_URL variable on GitHub...');
+    const urlResult = await setVariables(owner, repo, { APP_URL: appUrl });
+    if (urlResult.APP_URL.success) {
+      urlSpinner.stop('APP_URL variable updated on GitHub');
+    } else {
+      urlSpinner.stop(`Failed: ${urlResult.APP_URL.error}`);
+    }
   } else {
-    urlSpinner.stop(`Failed: ${urlResult.APP_URL.error}`);
+    clack.log.success('Polling mode — no public URL needed. The bot will poll Telegram for updates.');
   }
 
   // ─── Step 3: Bot Token ──────────────────────────────────────────────
@@ -177,29 +213,42 @@ async function main() {
   // Bug fix #146: save token to .env
   updateEnvVariable('TELEGRAM_BOT_TOKEN', token);
 
-  // ─── Step 4: Webhook ────────────────────────────────────────────────
+  // ─── Step 4: Webhook (webhook mode only) ────────────────────────────
   clack.log.step(`[${++currentStep}/${TOTAL_STEPS}] Register Webhook`);
-  clack.log.info('Registering a webhook tells Telegram where to send messages for your bot.');
 
-  // Handle webhook secret
-  let webhookSecret = env?.TELEGRAM_WEBHOOK_SECRET;
-  if (webhookSecret) {
-    clack.log.success('Using existing webhook secret');
-  } else {
-    webhookSecret = await generateTelegramWebhookSecret();
-    updateEnvVariable('TELEGRAM_WEBHOOK_SECRET', webhookSecret);
-    clack.log.success('Generated webhook secret');
-  }
+  if (telegramMode === 'webhook') {
+    clack.log.info('Registering a webhook tells Telegram where to send messages for your bot.');
 
-  // Register Telegram webhook
-  webhookUrl = `${appUrl}/api/telegram/webhook`;
-  const tgSpinner = clack.spinner();
-  tgSpinner.start('Registering Telegram webhook...');
-  const tgResult = await setTelegramWebhook(token, webhookUrl, webhookSecret);
-  if (tgResult.ok) {
-    tgSpinner.stop('Telegram webhook registered');
+    // Handle webhook secret
+    let webhookSecret = env?.TELEGRAM_WEBHOOK_SECRET;
+    if (webhookSecret) {
+      clack.log.success('Using existing webhook secret');
+    } else {
+      webhookSecret = await generateTelegramWebhookSecret();
+      updateEnvVariable('TELEGRAM_WEBHOOK_SECRET', webhookSecret);
+      clack.log.success('Generated webhook secret');
+    }
+
+    // Register Telegram webhook
+    webhookUrl = `${appUrl}/api/telegram/webhook`;
+    const tgSpinner = clack.spinner();
+    tgSpinner.start('Registering Telegram webhook...');
+    const tgResult = await setTelegramWebhook(token, webhookUrl, webhookSecret);
+    if (tgResult.ok) {
+      tgSpinner.stop('Telegram webhook registered');
+    } else {
+      tgSpinner.stop(`Failed: ${tgResult.description}`);
+    }
   } else {
-    tgSpinner.stop(`Failed: ${tgResult.description}`);
+    // Polling mode — delete any existing webhook
+    clack.log.info('Polling mode — clearing any existing webhook...');
+    const { deleteTelegramWebhook } = await import('./lib/telegram.mjs');
+    const delResult = await deleteTelegramWebhook(token);
+    if (delResult.ok) {
+      clack.log.success('Webhook cleared — bot will use polling');
+    } else {
+      clack.log.warn(`Could not clear webhook: ${delResult.description || 'unknown error'}`);
+    }
   }
 
   // ─── Step 5: Chat Verification ──────────────────────────────────────
@@ -250,8 +299,11 @@ async function main() {
 
   // ─── Summary ────────────────────────────────────────────────────────
   let summary = '';
+  summary += `Mode:      ${telegramMode}\n`;
   summary += `Bot:       @${botUsername || '(unknown)'}\n`;
-  summary += `Webhook:   ${webhookUrl}\n`;
+  if (telegramMode === 'webhook') {
+    summary += `Webhook:   ${webhookUrl}\n`;
+  }
   summary += `Chat ID:   ${telegramChatId || '(not set)'}`;
   clack.note(summary, 'Telegram Configuration');
 
