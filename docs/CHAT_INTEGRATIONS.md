@@ -21,7 +21,20 @@ Connect a Telegram bot to chat with your agent on the go:
 npm run setup-telegram
 ```
 
-The setup wizard configures your bot token, webhook, and chat ID. Once connected, message your bot directly to chat or create jobs. Supports text, voice messages (transcribed via OpenAI Whisper), photos, and documents.
+The setup wizard walks you through mode selection, bot token, and chat ID configuration.
+
+**Two delivery modes:**
+
+| Mode | How it works | Requires public URL? |
+|------|-------------|---------------------|
+| **Polling** (default for new setups) | Bot polls Telegram's `getUpdates` API | No — works behind firewalls, NAT, no ngrok needed |
+| **Webhook** | Telegram pushes updates to your HTTPS endpoint | Yes — needs a publicly accessible URL |
+
+Set `TELEGRAM_MODE=polling` or `TELEGRAM_MODE=webhook` in `.env`. The setup wizard configures this for you.
+
+**Polling mode** is ideal for self-hosted and local setups — it runs in the same Node.js process with no additional services. **Webhook mode** is better for cloud-hosted deployments where you already have a public URL.
+
+Both modes support text, voice messages (transcribed via OpenAI Whisper), photos, and documents. The AI layer is mode-agnostic — it receives the same normalized messages regardless of delivery method.
 
 See [Configuration](CONFIGURATION.md) for manual Telegram setup instructions.
 

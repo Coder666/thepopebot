@@ -14,8 +14,9 @@ All environment variables for the Event Handler (set in `.env` in your project r
 | `GH_OWNER` | GitHub repository owner | Yes |
 | `GH_REPO` | GitHub repository name | Yes |
 | `TELEGRAM_BOT_TOKEN` | Telegram bot token from BotFather | For Telegram |
+| `TELEGRAM_MODE` | `webhook` (default) or `polling`. Polling calls `getUpdates` — no public URL needed | No |
 | `TELEGRAM_CHAT_ID` | Restricts bot to this chat only | For security |
-| `TELEGRAM_WEBHOOK_SECRET` | Secret for webhook validation | No |
+| `TELEGRAM_WEBHOOK_SECRET` | Secret for webhook validation (webhook mode only) | For webhook |
 | `TELEGRAM_VERIFICATION` | Verification code for getting your chat ID | For Telegram setup |
 | `GH_WEBHOOK_SECRET` | Secret for GitHub Actions webhook auth | For notifications |
 | `LLM_PROVIDER` | LLM provider: `anthropic`, `openai`, or `google` (default: `anthropic`) | No |
