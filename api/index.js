@@ -3,6 +3,7 @@ import { createJob } from '../lib/tools/create-job.js';
 import { setWebhook } from '../lib/tools/telegram.js';
 import { getJobStatus, fetchJobLog } from '../lib/tools/github.js';
 import { getTelegramAdapter } from '../lib/channels/index.js';
+import { startPolling } from '../lib/channels/telegram-polling.js';
 import { chat, summarizeJob } from '../lib/ai/index.js';
 import { createNotification } from '../lib/db/notifications.js';
 import { loadTriggers } from '../lib/triggers.js';
@@ -19,6 +20,22 @@ function getTelegramBotToken() {
     telegramBotToken = process.env.TELEGRAM_BOT_TOKEN || null;
   }
   return telegramBotToken;
+}
+
+// ── Telegram polling (lazy-start) ──────────────────────────────────────────
+let _pollingStarted = false;
+
+function maybeStartPolling() {
+  if (_pollingStarted) return;
+  _pollingStarted = true;
+  const mode = (process.env.TELEGRAM_MODE || 'webhook').toLowerCase();
+  if (mode !== 'polling') return;
+  const token = getTelegramBotToken();
+  if (!token) {
+    console.warn('[telegram] TELEGRAM_MODE=polling but no TELEGRAM_BOT_TOKEN set');
+    return;
+  }
+  startPolling(token, processChannelMessage);
 }
 
 function getFireTriggers() {
@@ -217,6 +234,7 @@ async function handleJobStatus(request) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function POST(request) {
+  maybeStartPolling();
   const url = new URL(request.url);
   const routePath = url.pathname.replace(/^\/api/, '');
 
@@ -255,6 +273,7 @@ async function POST(request) {
 }
 
 async function GET(request) {
+  maybeStartPolling();
   const url = new URL(request.url);
   const routePath = url.pathname.replace(/^\/api/, '');
 
