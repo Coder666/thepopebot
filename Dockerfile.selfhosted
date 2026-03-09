@@ -1,0 +1,193 @@
+# syntax=docker/dockerfile:1
+# Self-hosted event handler — builds thepopebot from source.
+#
+# Three stages:
+#   source-packer   — compiles JSX, runs npm pack → tarball
+#   project-builder — installs tarball like any npm pkg, runs next build
+#   runtime         — lean image with pm2; no build tools
+#
+# Build:
+#   docker build -t thepopebot-local:event-handler -f Dockerfile.selfhosted .
+#
+# Run:
+#   docker compose -f docker-compose.selfhosted.yml up -d
+
+# ── Stage 1: compile JSX and produce a proper npm tarball ────────────
+FROM node:22-bookworm-slim AS source-packer
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends python3 make g++ && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /src
+
+# Install dev deps (esbuild) — cached until package files change
+COPY package.json package-lock.json* ./
+RUN npm ci --prefer-offline 2>/dev/null || npm install
+
+# Copy source
+COPY lib/       ./lib/
+COPY api/       ./api/
+COPY bin/       ./bin/
+COPY config/    ./config/
+COPY drizzle/   ./drizzle/
+COPY templates/ ./templates/
+COPY setup/     ./setup/
+
+# Compile JSX → JS (esbuild step from package.json "build" script)
+RUN npm run build
+
+# Post-build: fix import paths so Node.js ESM can resolve them.
+#
+# esbuild compiles foo.jsx → foo.js but does NOT rewrite import paths.
+# Two problems to fix in the compiled .js files:
+#   1. import './bar.jsx'  → import './bar.js'   (.jsx extension rejected by ESM)
+#   2. import './button'   → import './button.js' (bare path; ESM needs extensions)
+#
+# We also delete the .jsx originals so only .js files are packed.
+RUN node - <<'JSEOF'
+const fs = require('fs'), path = require('path');
+
+function walk(dir, cb) {
+  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+    const p = path.join(dir, e.name);
+    if (e.isDirectory()) walk(p, cb);
+    else cb(p);
+  }
+}
+
+let fixedFiles = 0, removedJsx = 0;
+
+// Pass 1: rewrite import paths in compiled .js files
+walk('lib', (p) => {
+  if (!p.endsWith('.js')) return;
+  const dir = path.dirname(p);
+  let src = fs.readFileSync(p, 'utf8');
+
+  const updated = src.replace(/from\s+(['"])(\.\.?\/[^'"]+)\1/g, (match, q, imp) => {
+    // Already has a known extension — leave it
+    if (/\.(js|mjs|cjs|json|css|svg|png)$/.test(imp)) return match;
+
+    // .jsx extension → .js
+    if (imp.endsWith('.jsx')) return `from ${q}${imp.slice(0, -4)}.js${q}`;
+
+    // No extension: probe the filesystem for .js or /index.js
+    const abs = path.resolve(dir, imp);
+    if (fs.existsSync(abs + '.js'))                         return `from ${q}${imp}.js${q}`;
+    if (fs.existsSync(path.join(abs, 'index.js')))          return `from ${q}${imp}/index.js${q}`;
+
+    // Unknown — leave unchanged (will surface as a runtime error if wrong)
+    return match;
+  });
+
+  if (updated !== src) { fs.writeFileSync(p, updated); fixedFiles++; }
+});
+
+// Pass 2: delete .jsx originals
+walk('lib', (p) => {
+  if (p.endsWith('.jsx')) { fs.unlinkSync(p); removedJsx++; }
+});
+
+console.log(`Post-build: fixed ${fixedFiles} files, removed ${removedJsx} .jsx originals`);
+JSEOF
+
+# Pack into a versioned tarball — npm uses the "files" field from package.json.
+# Only compiled .js files are included (no .jsx).
+RUN npm pack && echo "Packed: $(ls thepopebot-*.tgz)"
+
+# ── Stage 2: user project — install tarball, run next build ──────────
+FROM node:22-bookworm-slim AS project-builder
+
+# python3/make/g++ required to compile better-sqlite3 native module
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends python3 make g++ && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Minimal user project package.json.
+# thepopebot's dependencies (next, react, react-dom, next-auth,
+# better-sqlite3, drizzle-orm, streamdown, langchain, …) all come
+# from the tarball's package.json and are installed by npm automatically.
+# Pin next to ^15 so npm doesn't resolve the >=15.5.12 peer dep to Next.js 16+.
+# Only add tailwind PostCSS tooling which thepopebot doesn't bring.
+RUN echo '{"dependencies":{"@tailwindcss/postcss":"^4.2.1","next":"^15","tailwindcss":"^4","thepopebot":"file:thepopebot.tgz"}}' \
+    > package.json
+
+# Copy the tarball from stage 1 (rename to fixed name)
+COPY --from=source-packer /src/thepopebot-*.tgz ./thepopebot.tgz
+
+# One npm install resolves, hoists, and deduplicates everything:
+#   next@15.x, react, react-dom, next-auth, better-sqlite3, drizzle-orm,
+#   streamdown, @langchain/*, grammy, ai, tailwindcss, @tailwindcss/postcss …
+RUN npm install
+
+# ESM compat fix: Next.js 15 ships with NO package.json exports map, so
+# `import 'next/server'` from next-auth (ESM) fails at build time when
+# Next.js collects page data (executes server routes in a worker process).
+#
+# Node.js ESM resolves `import 'next/server'` → URL file:///app/node_modules/next/server
+# With a symlink  next/server → server.js  the stat() follows it and
+# realpathSync() returns server.js (.js ext) → loads correctly.
+# CJS require('next/dist/compiled/commander') is unaffected: no exports map
+# means CJS uses legacy directory-index resolution.
+RUN for f in node_modules/next/*.js; do \
+      base="$(basename "$f" .js)"; \
+      [ -e "node_modules/next/$base" ] || ln -sf "$base.js" "node_modules/next/$base"; \
+    done && echo "Created ESM symlinks for node_modules/next/*.js"
+
+# Copy user project template files: app/, next.config.mjs, server.js, etc.
+COPY --from=source-packer /src/templates/ ./
+
+# All app pages and layouts use auth() / thepopebot components with React context
+# (ThemeProvider, useContext) that cannot be statically prerendered.
+# Patch page.js + layout.js → force-dynamic; root layout being dynamic also
+# covers Next.js's internal /_not-found route which runs inside the root layout.
+RUN find app \( -name "page.js" -o -name "layout.js" \) | while read f; do \
+      grep -q "dynamic" "$f" || echo "export const dynamic = 'force-dynamic';" >> "$f"; \
+    done && echo "Patched dynamic exports"
+
+# Next.js 15 is missing app-page/vendored/contexts/loadable — the file exists
+# only for the Pages Router.  When webpack bundles thepopebot (not in
+# serverExternalPackages) it follows next/dynamic → loadable.shared-runtime →
+# this path and fails.  Stub it out by re-exporting from the pages version.
+RUN mkdir -p node_modules/next/dist/server/route-modules/app-page/vendored/contexts && \
+    echo '"use strict";\nmodule.exports = require("../../../pages/module.compiled").vendored["contexts"].Loadable;' \
+      > node_modules/next/dist/server/route-modules/app-page/vendored/contexts/loadable.js && \
+    echo "Created app-page/vendored/contexts/loadable.js stub"
+
+# Build Next.js (pre-compiles pages → .next/ for fast container startup)
+RUN node_modules/.bin/next build
+
+# ── Stage 3: lean runtime image ──────────────────────────────────────
+FROM node:22-bookworm-slim
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends curl git ca-certificates && \
+    install -m 0755 -d /etc/apt/keyrings && \
+    curl -fsSL https://download.docker.com/linux/debian/gpg \
+      | dd of=/etc/apt/keyrings/docker.asc && \
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian bookworm stable" \
+      | tee /etc/apt/sources.list.d/docker.list > /dev/null && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends docker-ce-cli && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN npm install -g pm2
+
+WORKDIR /app
+
+# Copy the fully built project (node_modules + .next + app files)
+COPY --from=project-builder /app/ ./
+
+# PM2 ecosystem config lives outside /app to avoid being overwritten by volume mounts
+COPY --from=source-packer /src/templates/docker/event-handler/ecosystem.config.cjs \
+     /opt/ecosystem.config.cjs
+
+# Create directories that thepopebot expects at runtime (cwd for cron/trigger jobs,
+# writable log and data dirs).  Volume mounts overlay these but they must pre-exist
+# so the container starts cleanly even before any user data is written.
+RUN mkdir -p /app/cron /app/logs /app/triggers /app/data /app/skills /app/config
+
+EXPOSE 80
+CMD ["pm2-runtime", "/opt/ecosystem.config.cjs"]

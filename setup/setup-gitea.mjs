@@ -389,7 +389,7 @@ container:
   sp3.start(`Creating admin user '${adminUsername}'…`);
   if (!DRY_RUN) {
     try {
-      run(`docker exec -u git gitea gitea admin user create --username "${adminUsername}" --password "${adminPassword}" --email "${adminUsername}@localhost" --admin --must-change-password=false`);
+      run(`docker exec -u git gitea gitea admin user create --username "${adminUsername}" --password "${adminPassword}" --email "${adminUsername}@${domain}" --admin --must-change-password=false`);
       sp3.stop(`Admin '${adminUsername}' created ✓`);
     } catch {
       try {
@@ -707,6 +707,7 @@ const varsToSet = [
   ['LLM_PROVIDER',       llmProvider    ],
   ['LLM_MODEL',          llmModel       ],
   ['RUNS_ON',            'ubuntu-latest'],
+  ['GITEA_USER',         owner          ],
 ];
 if (openaiBaseUrl)        varsToSet.push(['OPENAI_BASE_URL', openaiBaseUrl]);
 if (jobImageUrl)          varsToSet.push(['JOB_IMAGE_URL',   jobImageUrl  ]);
@@ -785,13 +786,40 @@ if (!dockerAvailable() && !DRY_RUN) {
   log.warn('Docker is not available — skipping web UI setup.');
   log.warn('Install Docker and run the setup again, or start the UI manually (see docs/SETUP_GUIDE.md).');
 } else {
-  const startUI = await confirm({
-    message: 'Start the thepopebot web UI (event handler) with Docker now?',
-    initialValue: true,
+  // ── Deployment mode ────────────────────────────────────────────────────
+  const deployMode = await select({
+    message: 'How should the event handler (web UI) be deployed?',
+    options: [
+      {
+        label: 'Pull from Docker Hub  (easiest — uses published stephengpope/thepopebot image)',
+        value: 'published',
+        hint: 'No build required. Update by restarting the container.',
+      },
+      {
+        label: 'Build from source now  (self-hosted — uses your local Gitea fork)',
+        value: 'build',
+        hint: 'Builds Dockerfile.selfhosted from admin/pope-bot. Takes ~5-10 min.',
+      },
+      {
+        label: 'Gitea Actions auto-deploy  (recommended for self-hosting)',
+        value: 'gitea-actions',
+        hint: 'Installs a deploy workflow: every push to admin/pope-bot rebuilds and restarts the UI automatically.',
+      },
+    ],
+    initialValue: existingEnv.EVENT_HANDLER_DEPLOY_MODE || 'published',
   });
+  if (sym(deployMode)) process.exit(0);
+  _writeEnvKey('EVENT_HANDLER_DEPLOY_MODE', deployMode);
+
+  const startUI = deployMode !== 'gitea-actions'
+    ? await confirm({
+        message: 'Start the thepopebot web UI (event handler) with Docker now?',
+        initialValue: true,
+      })
+    : false;
   if (sym(startUI)) process.exit(0);
 
-  if (startUI) {
+  if (startUI || deployMode === 'gitea-actions') {
     uiPort = await text({
       message: 'Host port for the web UI',
       placeholder: _defaultUiPort,
@@ -823,22 +851,29 @@ if (!dockerAvailable() && !DRY_RUN) {
       _writeEnvKey('AUTH_SECRET', randomBytes(32).toString('hex'));
     }
 
-    // ── Build / write the compose file for the event handler ──────────────
-    // Always use a dedicated file so we never overwrite an existing
-    // docker-compose.yml (which might have Traefik on ports 80/443 or other
-    // services the user doesn't want touched).
-    const ehImage = existingEnv.EVENT_HANDLER_IMAGE_URL ||
-      'stephengpope/thepopebot:event-handler-latest';
+    // ── Write compose file ─────────────────────────────────────────────────
+    // Use docker-compose.selfhosted.yml for build/gitea-actions modes
+    // (image baked in, only data dirs mounted).
+    // Use docker-compose.popebot.yml for published mode (simpler, pulls image).
+    const isSelfHosted = deployMode === 'build' || deployMode === 'gitea-actions';
+    const ehImage = isSelfHosted
+      ? 'thepopebot-local:event-handler'
+      : (existingEnv.EVENT_HANDLER_IMAGE_URL || 'stephengpope/thepopebot:event-handler-latest');
 
     let uiComposeDir = PROJECT_ROOT;
 
     if (gitea_mode === 'docker') {
-      // Append thepopebot to the gitea-stack compose so it can reach `gitea`
-      // by container hostname on the same Docker network.
+      // Append thepopebot to the gitea-stack compose (same network as gitea).
       uiComposeDir  = composeDir;
       uiComposeFile = path.join(composeDir, 'docker-compose.yml');
       const stackContent = readFileSync(uiComposeFile, 'utf-8');
       if (!stackContent.includes('thepopebot:')) {
+        const volumesBlock = isSelfHosted
+          ? `      # Only user data dirs — image has everything else baked in
+      - ${PROJECT_ROOT}/config:/app/config
+      - ${PROJECT_ROOT}/skills:/app/skills
+      - thepopebot-data:/app/db`
+          : `      - ${PROJECT_ROOT}:/app`;
         const svc = `
   # ── thepopebot event handler ──────────────────────────────────────────────
   thepopebot:
@@ -850,7 +885,7 @@ if (!dockerAvailable() && !DRY_RUN) {
     env_file:
       - ${ENV_PATH}
     volumes:
-      - ${PROJECT_ROOT}:/app
+${volumesBlock}
     ports:
       - "${uiPort}:80"
     healthcheck:
@@ -858,41 +893,64 @@ if (!dockerAvailable() && !DRY_RUN) {
       interval: 10s
       timeout: 3s
       retries: 5
-      start_period: 30s
+      start_period: 60s
     networks:
       - gitea-internal
 `;
         if (!DRY_RUN) {
-          writeFileSync(uiComposeFile, stackContent.replace(/\nnetworks:/, svc + '\nnetworks:'));
+          let updated = stackContent.replace(/\nnetworks:/, svc + '\nnetworks:');
+          if (isSelfHosted && !updated.includes('thepopebot-data:')) {
+            updated = updated.trimEnd() + '\n\nvolumes:\n  thepopebot-data:\n';
+          }
+          writeFileSync(uiComposeFile, updated);
           log.info(`Added thepopebot service to ${uiComposeFile}`);
         } else {
           log.info(`[dry-run] Would add thepopebot service to ${uiComposeFile}`);
         }
       }
     } else {
-      // Existing Gitea: write a SEPARATE dedicated compose file.
-      // Named docker-compose.popebot.yml so it never conflicts with whatever
-      // compose setup the user already has (Traefik on 80/443, etc.).
-      uiComposeFile = path.join(PROJECT_ROOT, 'docker-compose.popebot.yml');
+      // Existing Gitea — write a separate dedicated compose file.
+      const composeFileName = isSelfHosted
+        ? 'docker-compose.selfhosted.yml'
+        : 'docker-compose.popebot.yml';
+      uiComposeFile = path.join(PROJECT_ROOT, composeFileName);
+
+      const volumesBlock = isSelfHosted
+        ? `      # Only user data dirs — image has everything else baked in
+      - ./config:/app/config
+      - ./skills:/app/skills
+      - thepopebot-data:/app/db`
+        : `      - .:/app`;
+
+      const volumesSection = isSelfHosted
+        ? `\nvolumes:\n  thepopebot-data:\n` : '';
+
+      const updateNote = isSelfHosted
+        ? `# Update:   push code to admin/pope-bot on Gitea (auto-deploy) OR run:
+#             docker build -t thepopebot-local:event-handler -f Dockerfile.selfhosted . && \\
+#             docker compose -f ${composeFileName} up -d --force-recreate`
+        : `# Update:   docker compose -f ${composeFileName} pull && docker compose -f ${composeFileName} up -d`;
+
+      const startPeriod = isSelfHosted ? '60s' : '30s';
+
       const standalone = `# thepopebot event handler — generated by setup-gitea.mjs
-# This file is separate from any existing docker-compose.yml.
 #
-# Start:    docker compose -f docker-compose.popebot.yml up -d
-# Stop:     docker compose -f docker-compose.popebot.yml down
+# Start:    docker compose -f ${composeFileName} up -d
+# Stop:     docker compose -f ${composeFileName} down
 # Logs:     docker logs -f thepopebot
-# Restart:  docker compose -f docker-compose.popebot.yml restart
+# Restart:  docker compose -f ${composeFileName} restart
+${updateNote}
 #
-# The host port below (${uiPort}) was set during setup.
-# To change it: edit THEPOPEBOT_PORT in .env and restart.
+# Port ${uiPort} was set during setup — change THEPOPEBOT_PORT in .env to override.
 
 services:
   thepopebot:
-    image: ${ehImage}
+    image: \${EVENT_HANDLER_IMAGE:-${ehImage}}
     container_name: thepopebot
     restart: unless-stopped
     env_file: .env
     volumes:
-      - .:/app
+${volumesBlock}
     ports:
       - "\${THEPOPEBOT_PORT:-${uiPort}}:80"
     healthcheck:
@@ -900,8 +958,8 @@ services:
       interval: 10s
       timeout: 3s
       retries: 5
-      start_period: 30s
-`;
+      start_period: ${startPeriod}
+${volumesSection}`;
       if (!DRY_RUN) {
         writeFileSync(uiComposeFile, standalone);
         log.info(`Wrote ${uiComposeFile}`);
@@ -910,32 +968,89 @@ services:
       }
     }
 
+    // ── Gitea Actions deploy workflow ──────────────────────────────────────
+    if (deployMode === 'gitea-actions') {
+      // Ask where the project is deployed on the runner host
+      const deployDir = await text({
+        message: 'Absolute path to the project on the runner host (DEPLOY_DIR)',
+        placeholder: PROJECT_ROOT,
+        initialValue: PROJECT_ROOT,
+        hint: 'The deploy workflow mounts this dir into job containers.',
+        validate: v => v.trim() ? undefined : 'Required',
+      });
+      if (sym(deployDir)) process.exit(0);
+
+      await setVar(giteaUrl, giteaToken, owner, repoName, 'DEPLOY_DIR', deployDir.trim());
+      log.info(`Set DEPLOY_DIR=${deployDir.trim()}`);
+
+      // Copy deploy.yml to the pope-bot Gitea repo so pushes auto-rebuild.
+      const deployYml = path.join(PKG_ROOT, '.gitea', 'workflows', 'deploy.yml');
+      const repoWorkflowDir = path.join(PROJECT_ROOT, '.gitea', 'workflows');
+      if (!DRY_RUN) {
+        mkdirSync(repoWorkflowDir, { recursive: true });
+        const workflowContent = readFileSync(deployYml, 'utf-8');
+        writeFileSync(path.join(repoWorkflowDir, 'deploy.yml'), workflowContent);
+        log.info(`Wrote .gitea/workflows/deploy.yml — push admin/pope-bot to trigger auto-deploy`);
+      } else {
+        log.info(`[dry-run] Would write .gitea/workflows/deploy.yml`);
+      }
+    }
+
+    // ── Build image (for 'build' and 'gitea-actions' modes) ───────────────
+    if (isSelfHosted && startUI) {
+      const sp_build = spinner();
+      sp_build.start('Building event handler image (this takes ~5-10 min)…');
+      if (!DRY_RUN) {
+        try {
+          run(`docker build -t thepopebot-local:event-handler -f ${path.join(PKG_ROOT, 'Dockerfile.selfhosted')} ${PKG_ROOT}`);
+          sp_build.stop('Image built ✓');
+        } catch (e) {
+          sp_build.stop('');
+          log.warn(`Build failed: ${e.message}`);
+          log.warn(`Run manually: docker build -t thepopebot-local:event-handler -f Dockerfile.selfhosted .`);
+        }
+      } else {
+        sp_build.stop(`[dry-run] Would build thepopebot-local:event-handler`);
+      }
+    }
+
     // ── Pull + start event handler ─────────────────────────────────────────
-    const sp_ui = spinner();
-    sp_ui.start('Pulling event handler image…');
-    if (!DRY_RUN) {
-      try {
-        run(`docker compose -f "${uiComposeFile}" pull thepopebot`);
-        sp_ui.stop('Image pulled ✓');
-      } catch {
-        sp_ui.stop('Pull skipped (image may already be cached)');
+    if (startUI) {
+      if (!isSelfHosted) {
+        const sp_ui = spinner();
+        sp_ui.start('Pulling event handler image…');
+        if (!DRY_RUN) {
+          try {
+            run(`docker compose -f "${uiComposeFile}" pull thepopebot`);
+            sp_ui.stop('Image pulled ✓');
+          } catch {
+            sp_ui.stop('Pull skipped (image may already be cached)');
+          }
+        } else {
+          sp_ui.stop(`[dry-run] Would pull thepopebot image`);
+        }
       }
       const sp_up = spinner();
       sp_up.start('Starting event handler…');
-      try {
-        run(`docker compose -f "${uiComposeFile}" up -d thepopebot`);
-        sp_up.stop('Event handler started ✓');
-      } catch (e) {
-        sp_up.stop('');
-        log.warn(`Could not start event handler: ${e.message}`);
-        log.warn(`Try manually: docker compose -f "${uiComposeFile}" up -d thepopebot`);
+      if (!DRY_RUN) {
+        try {
+          run(`docker compose -f "${uiComposeFile}" up -d thepopebot`);
+          sp_up.stop('Event handler started ✓');
+        } catch (e) {
+          sp_up.stop('');
+          log.warn(`Could not start event handler: ${e.message}`);
+          log.warn(`Try manually: docker compose -f "${uiComposeFile}" up -d thepopebot`);
+        }
+      } else {
+        sp_up.stop(`[dry-run] Would start thepopebot via ${uiComposeFile}`);
       }
-    } else {
-      sp_ui.stop(`[dry-run] Would start thepopebot via ${uiComposeFile}`);
+    } else if (deployMode === 'gitea-actions') {
+      log.info('Gitea Actions mode: push code to admin/pope-bot to trigger the first deploy.');
+      log.info(`Once deployed, the UI will be at http://${uiHostname}:${uiPort}`);
     }
 
     // ── Self-test ──────────────────────────────────────────────────────────
-    uiStarted = await selfTestEventHandler(uiPort);
+    if (startUI) uiStarted = await selfTestEventHandler(uiPort);
   }
 }
 

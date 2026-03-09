@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       branch:
-        description: 'Branch to build from (default: vars.FORK_BRANCH or feature/all-features)'
+        description: 'Branch to build from (default: vars.FORK_BRANCH or main)'
         required: false
 
 jobs:
@@ -14,7 +14,7 @@ jobs:
     steps:
       - name: Build agent image from fork
         env:
-          FORK_BRANCH: ${{ github.event.inputs.branch || vars.FORK_BRANCH || 'feature/all-features' }}
+          FORK_BRANCH: ${{ github.event.inputs.branch || vars.FORK_BRANCH || 'main' }}
           FORK_REPO_URL: ${{ vars.FORK_REPO_URL }}
         run: |
           if [ -z "$FORK_REPO_URL" ]; then

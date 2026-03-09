@@ -33,7 +33,7 @@ Download from https://docs.docker.com/get-docker/ if needed.
 ### 3. Clone the repo and install dependencies
 
 ```sh
-git clone https://github.com/Coder666/thepopebot.git
+git clone https://github.com/stephengpope/thepopebot.git
 cd thepopebot
 npm install        # ← REQUIRED before running setup
 ```

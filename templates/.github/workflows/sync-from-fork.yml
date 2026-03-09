@@ -20,6 +20,7 @@ jobs:
           SYNC_BRANCH: ${{ github.event.inputs.branch || 'main' }}
           FORK_REPO_URL: ${{ vars.FORK_REPO_URL }}
           GITEA_TOKEN: ${{ secrets.AGENT_GITEA_TOKEN }}
+          GITEA_USER: ${{ vars.GITEA_USER || 'admin' }}
         run: |
           if [ -z "$FORK_REPO_URL" ]; then
             echo "ERROR: FORK_REPO_URL repo variable is not set."
@@ -32,7 +33,7 @@ jobs:
           git clone --depth 1 --branch "$SYNC_BRANCH" "$FORK_REPO_URL" "$TMPDIR"
 
           # Push to this Gitea repo using token auth
-          GITEA_REMOTE=$(echo "$GITEA_SERVER_URL" | sed "s|://|://admin:${GITEA_TOKEN}@|")
+          GITEA_REMOTE=$(echo "$GITEA_SERVER_URL" | sed "s|://|://${GITEA_USER}:${GITEA_TOKEN}@|")
           git -C "$TMPDIR" remote add local "${GITEA_REMOTE}/${GITEA_REPOSITORY}.git"
           git -C "$TMPDIR" push local HEAD:"$SYNC_BRANCH" --force
 

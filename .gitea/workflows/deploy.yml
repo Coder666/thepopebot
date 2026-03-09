@@ -1,0 +1,123 @@
+name: Deploy Event Handler
+
+# Automatically rebuilds and redeploys the event handler whenever
+# source is pushed to the main deployment branch.
+#
+# Self-modification loop:
+#   (1) Agent opens a PR against admin/pope-bot (this repo)
+#   (2) PR is merged → push triggers this workflow
+#   (3) New image is built from source, old image tagged :rollback
+#   (4) Container is restarted with new image
+#   (5) Health check passes → deployment complete
+#   (6) Health check fails → automatic rollback to :rollback image
+#
+# Requirements:
+#   - Runner must be self-hosted on the same machine as the bot
+#   - Runner must have Docker socket access (/var/run/docker.sock)
+#   - DEPLOY_DIR must contain .env and docker-compose.selfhosted.yml
+#   - Set repo variable DEPLOY_DIR (required — path to project dir on the runner host)
+#   - Set repo variable THEPOPEBOT_PORT (default: 3002)
+
+on:
+  push:
+    branches:
+      - feature/all-features
+      - main
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+    timeout-minutes: 30
+
+    env:
+      IMAGE: thepopebot-local:event-handler
+      COMPOSE_FILE: docker-compose.selfhosted.yml
+      # Set DEPLOY_DIR in Gitea repo variables (Settings → Variables → Actions)
+      DEPLOY_DIR: ${{ vars.DEPLOY_DIR }}
+      PORT: ${{ vars.THEPOPEBOT_PORT || '3002' }}
+
+    steps:
+      - name: Validate required variables
+        run: |
+          if [ -z "${DEPLOY_DIR}" ]; then
+            echo "ERROR: DEPLOY_DIR repo variable is not set."
+            echo "Go to Settings → Variables → Actions and add DEPLOY_DIR=/path/to/your/project"
+            exit 1
+          fi
+
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      # ── Tag current image as rollback before building ───────────
+      - name: Tag current image as rollback
+        run: |
+          if docker image inspect ${IMAGE} >/dev/null 2>&1; then
+            docker tag ${IMAGE} thepopebot-local:rollback
+            echo "✓ Tagged current image as :rollback"
+          else
+            echo "No existing image to tag — first deploy, skipping rollback tag"
+          fi
+
+      # ── Build new image from source ──────────────────────────────
+      # Docker build context is streamed from the job workspace to the
+      # host Docker daemon — works regardless of container path mapping.
+      - name: Build self-contained image
+        run: |
+          docker build \
+            --progress=plain \
+            -t ${IMAGE} \
+            -f Dockerfile.selfhosted \
+            .
+
+      # ── Deploy via host Docker daemon ────────────────────────────
+      # We run docker:cli as a helper container with the host Docker
+      # socket and the popebot-project dir mounted. This lets compose
+      # use the host-side .env and volume paths correctly, even though
+      # the deploy step runs inside a job container.
+      - name: Deploy updated container
+        run: |
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v ${DEPLOY_DIR}:${DEPLOY_DIR} \
+            -w ${DEPLOY_DIR} \
+            docker:cli \
+            docker compose -f ${COMPOSE_FILE} up -d --force-recreate --remove-orphans
+
+      # ── Health check ─────────────────────────────────────────────
+      # Job container uses --network=host so localhost:PORT reaches
+      # the thepopebot container's published port on the host.
+      - name: Health check (90s timeout)
+        id: healthcheck
+        run: |
+          echo "Waiting for http://localhost:${PORT}/api/ping ..."
+          for i in $(seq 1 18); do
+            sleep 5
+            if curl -sf "http://localhost:${PORT}/api/ping" >/dev/null 2>&1; then
+              echo "✓ Event handler healthy on port ${PORT} after $((i*5))s"
+              exit 0
+            fi
+            echo "  Still starting... ($((i*5))s / 90s)"
+          done
+          echo "✗ Health check timed out after 90s"
+          echo "--- Container logs (last 50 lines) ---"
+          docker logs thepopebot --tail 50 || true
+          exit 1
+
+      # ── Rollback on failure ──────────────────────────────────────
+      - name: Rollback to previous image
+        if: failure()
+        run: |
+          echo "⚠ Deployment failed — attempting rollback..."
+          if docker image inspect thepopebot-local:rollback >/dev/null 2>&1; then
+            docker tag thepopebot-local:rollback ${IMAGE}
+            docker run --rm \
+              -v /var/run/docker.sock:/var/run/docker.sock \
+              -v ${DEPLOY_DIR}:${DEPLOY_DIR} \
+              -w ${DEPLOY_DIR} \
+              docker:cli \
+              docker compose -f ${COMPOSE_FILE} up -d --force-recreate --remove-orphans
+            echo "✓ Rolled back to previous image"
+          else
+            echo "✗ No rollback image available — manual intervention required"
+            echo "  Run: docker compose -f ${DEPLOY_DIR}/${COMPOSE_FILE} up -d"
+          fi

@@ -1,0 +1,47 @@
+# thepopebot — self-hosted compose file (for use with Dockerfile.selfhosted)
+#
+# The image is fully self-contained (Next.js pre-built inside).
+# Only user data and config are mounted from the host.
+#
+# Start:   docker compose -f docker-compose.selfhosted.yml up -d
+# Stop:    docker compose -f docker-compose.selfhosted.yml down
+# Logs:    docker logs -f thepopebot
+# Update:  see docs/UPDATING.md or trigger a push to admin/pope-bot on Gitea
+
+services:
+  thepopebot:
+    image: ${EVENT_HANDLER_IMAGE:-thepopebot-local:event-handler}
+    container_name: thepopebot
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      # Persist user data (SQLite DB, uploads) across image rebuilds
+      - thepopebot-data:/app/db
+      # User-customisable config (personas, cron schedules, etc.)
+      - ./config:/app/config
+      # User skills — agents can add new skills here via PRs
+      - ./skills:/app/skills
+    ports:
+      - "${THEPOPEBOT_PORT:-3002}:80"
+    extra_hosts:
+      # Maps APP_HOSTNAME → the host so the container can reach host services.
+      # Set APP_HOSTNAME in .env (e.g. myserver.local or your machine's hostname).
+      - "${APP_HOSTNAME:-localhost}:host-gateway"
+    networks:
+      - default
+      - gitea_net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80/api/ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 60s
+
+networks:
+  default: {}
+  gitea_net:
+    external: true
+    name: gitea_gitea-internal
+
+volumes:
+  thepopebot-data:
