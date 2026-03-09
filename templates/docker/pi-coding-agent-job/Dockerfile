@@ -33,6 +33,16 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | d
 
 RUN npm install -g @mariozechner/pi-coding-agent
 
+# Copy gh-wrapper source and install a /usr/local/bin/gh shim.
+# When GH_WRAPPER_BACKEND=gitea the shim routes all gh calls through the
+# Gitea REST API instead of the real gh binary.  /usr/local/bin appears
+# before /usr/bin in PATH so the shim shadows the installed gh CLI.
+COPY lib/gh-wrapper /usr/local/lib/gh-wrapper
+RUN chmod +x /usr/local/lib/gh-wrapper/bin/gh \
+    && printf '#!/bin/sh\nif [ "${GH_WRAPPER_BACKEND}" = "gitea" ]; then\n  exec node /usr/local/lib/gh-wrapper/bin/gh "$@"\nfi\nexec /usr/bin/gh "$@"\n' \
+       > /usr/local/bin/gh \
+    && chmod +x /usr/local/bin/gh
+
 # Create a non-root user and give it ownership of /job.
 RUN useradd -m -s /bin/bash agent \
     && mkdir -p /job \
@@ -42,7 +52,7 @@ RUN useradd -m -s /bin/bash agent \
 RUN mkdir -p /home/agent/.pi/agent \
     && chown -R agent:agent /home/agent/.pi
 
-COPY entrypoint.sh /entrypoint.sh
+COPY templates/docker/pi-coding-agent-job/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
 USER agent

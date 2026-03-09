@@ -56,10 +56,18 @@ jobs:
           LLM_PROVIDER: ${{ steps.job-config.outputs.llm_provider || vars.LLM_PROVIDER }}
           OPENAI_BASE_URL: ${{ vars.OPENAI_BASE_URL }}
           AGENT_BACKEND: ${{ steps.job-config.outputs.agent_backend || vars.AGENT_BACKEND || '' }}
+          # Gitea backend: set GH_WRAPPER_BACKEND=gitea as a repo variable to route all
+          # gh CLI calls through the Gitea REST API instead of github.com.
+          # GITEA_URL is derived from github.server_url (avoids the reserved-name
+          # restriction on GITEA_* repo variables in Gitea Actions).
+          # GITEA_TOKEN: store as AGENT_GITEA_TOKEN repo secret — it is automatically
+          # unpacked into GITEA_TOKEN inside the container via the SECRETS mechanism.
+          GH_WRAPPER_BACKEND: ${{ vars.GH_WRAPPER_BACKEND }}
+          GITEA_SERVER_URL: ${{ github.server_url }}
         run: |
           AGENT_BACKEND="${AGENT_BACKEND:-pi}"
           if [ -n "$JOB_IMAGE_URL" ]; then
-            IMAGE="${JOB_IMAGE_URL}:latest"
+            IMAGE="${JOB_IMAGE_URL}"
           elif [ "$AGENT_BACKEND" = "claude-code" ]; then
             IMAGE="stephengpope/thepopebot:claude-code-job-${THEPOPEBOT_VERSION}"
           else
@@ -86,4 +94,6 @@ jobs:
             -e LLM_PROVIDER="${LLM_PROVIDER}" \
             -e OPENAI_BASE_URL="${OPENAI_BASE_URL}" \
             -e AGENT_BACKEND="${AGENT_BACKEND}" \
+            -e GH_WRAPPER_BACKEND="${GH_WRAPPER_BACKEND:-}" \
+            -e GITEA_URL="${GITEA_SERVER_URL:-}" \
             "$IMAGE"

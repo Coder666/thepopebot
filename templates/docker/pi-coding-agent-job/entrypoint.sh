@@ -145,7 +145,14 @@ set -e
 
 # Create PR with log permalink (auto-merge handled by GitHub Actions workflow)
 REPO_SLUG=$(gh repo view --json nameWithOwner -q .nameWithOwner)
-LOG_URL="https://github.com/${REPO_SLUG}/tree/${LOG_SHA}/logs/${JOB_ID}"
+# Build log URL — URL path format differs between GitHub (/tree/) and Gitea (/src/commit/)
+# REPO_URL is always available as an env var (e.g. https://gitea.example.com/owner/repo.git)
+REPO_BASE_URL="${REPO_URL%.git}"
+if [ "${GH_WRAPPER_BACKEND}" = "gitea" ]; then
+    LOG_URL="${REPO_BASE_URL}/src/commit/${LOG_SHA}/logs/${JOB_ID}"
+else
+    LOG_URL="${REPO_BASE_URL}/tree/${LOG_SHA}/logs/${JOB_ID}"
+fi
 gh pr create --title "🤖 Agent Job: ${TITLE}" \
   --body "📋 [View Job Logs](${LOG_URL})"$'\n\n---\n\n'"${JOB_DESCRIPTION}" \
   --base main || true

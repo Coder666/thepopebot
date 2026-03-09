@@ -1,0 +1,38 @@
+name: Rebuild Agent Image
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch to build from (default: vars.FORK_BRANCH or main)'
+        required: false
+
+jobs:
+  rebuild:
+    runs-on: self-hosted
+    timeout-minutes: 30
+    steps:
+      - name: Build agent image from fork
+        env:
+          FORK_BRANCH: ${{ github.event.inputs.branch || vars.FORK_BRANCH || 'main' }}
+          FORK_REPO_URL: ${{ vars.FORK_REPO_URL }}
+        run: |
+          if [ -z "$FORK_REPO_URL" ]; then
+            echo "ERROR: FORK_REPO_URL repo variable is not set."
+            echo "Run the setup wizard (npx thepopebot setup-gitea) to configure it."
+            exit 1
+          fi
+
+          BUILD_DIR=$(mktemp -d)
+
+          git clone --depth 1 --branch "$FORK_BRANCH" "$FORK_REPO_URL" "$BUILD_DIR"
+
+          # Build the agent image (context = repo root so lib/gh-wrapper is accessible)
+          docker build \
+            -t thepopebot-local:pi-coding-agent-job \
+            -f "$BUILD_DIR/templates/docker/pi-coding-agent-job/Dockerfile" \
+            "$BUILD_DIR"
+
+          rm -rf "$BUILD_DIR"
+          echo "Built thepopebot-local:pi-coding-agent-job from ${FORK_BRANCH} @ ${FORK_REPO_URL}"
+          docker images thepopebot-local:pi-coding-agent-job

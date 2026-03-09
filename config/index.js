@@ -13,18 +13,19 @@ export function withThepopebot(nextConfig = {}) {
   return {
     ...nextConfig,
     distDir: process.env.NEXT_BUILD_DIR || '.next',
-    transpilePackages: [
-      'thepopebot',
-      ...(nextConfig.transpilePackages || []),
+    // Only mark native-binding packages as server externals — they cannot be
+    // webpack-bundled.  thepopebot itself must NOT be external: Next.js needs
+    // to process it to respect 'use client' boundaries inside the package.
+    // (esbuild pre-compiles JSX→JS in stage 1, so webpack only needs to parse
+    // plain JS — no JSX transform required.)
+    serverExternalPackages: [
+      'better-sqlite3',
+      'drizzle-orm',
+      ...(nextConfig.serverExternalPackages || []),
     ],
     env: {
       ...nextConfig.env,
       NEXT_PUBLIC_CODE_WORKSPACE: process.env.CLAUDE_CODE_OAUTH_TOKEN && process.env.BETA ? 'true' : '',
     },
-    serverExternalPackages: [
-      ...(nextConfig.serverExternalPackages || []),
-      'better-sqlite3',
-      'drizzle-orm',
-    ],
   };
 }

@@ -158,8 +158,23 @@ async function main() {
     } catch {
       const commitSpinner = clack.spinner();
       commitSpinner.start('Creating initial commit...');
-      execSync('git commit -m "initial commit [skip ci]"', { stdio: 'ignore' });
-      commitSpinner.stop('Created initial commit');
+      try {
+        execSync('git commit -m "initial commit [skip ci]"', { stdio: 'pipe' });
+        commitSpinner.stop('Created initial commit');
+      } catch (commitErr) {
+        commitSpinner.stop('Commit failed');
+        const msg = commitErr.stderr?.toString() || commitErr.message || '';
+        if (msg.includes('Author identity unknown') || msg.includes('user.email') || msg.includes('user.name')) {
+          clack.log.error('Git user identity is not configured.');
+          clack.log.info('Run these commands then re-run setup:');
+          clack.log.info('  git config --global user.email "you@example.com"');
+          clack.log.info('  git config --global user.name "Your Name"');
+        } else {
+          clack.log.error(`Commit failed: ${msg.trim() || commitErr.message}`);
+        }
+        clack.cancel('Setup cancelled.');
+        process.exit(1);
+      }
     }
 
     // Ask for project name
@@ -396,6 +411,9 @@ async function main() {
       openaiBaseUrl = env.OPENAI_BASE_URL;
       collected.OPENAI_BASE_URL = openaiBaseUrl;
     }
+    if (chatProvider === 'custom' && env.CONTEXT_WINDOW) {
+      collected.CONTEXT_WINDOW = env.CONTEXT_WINDOW;
+    }
   } else {
     // Prompt for new LLM config
     clack.log.info('Choose the LLM provider for your bot.');
@@ -417,7 +435,8 @@ async function main() {
       });
       collected.CUSTOM_API_KEY = custom.apiKey || '';
       collected.OPENAI_BASE_URL = openaiBaseUrl;
-      clack.log.success(`Custom provider configured: ${custom.model} @ ${custom.baseUrl}`);
+      collected.CONTEXT_WINDOW = custom.contextWindow;
+      clack.log.success(`Custom provider configured: ${custom.model} @ ${custom.baseUrl} (${custom.contextWindow} token context)`);
       if (custom.apiKey) {
         clack.log.success(`API key added (${maskSecret(custom.apiKey)})`);
       }

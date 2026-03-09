@@ -1,4 +1,4 @@
-import { readFileSync, existsSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { join } from 'path';
 
 /**
@@ -18,4 +18,20 @@ export function loadEnvFile(dir = process.cwd()) {
     }
   }
   return env;
+}
+
+/**
+ * Write or update a single key=value line in a .env file.
+ * Updates the line in place if the key exists; appends if not.
+ *
+ * @param {string} key
+ * @param {string} value
+ * @param {string} filePath - Absolute path to the .env file
+ */
+export function writeEnvKey(key, value, filePath) {
+  let c = existsSync(filePath) ? readFileSync(filePath, 'utf-8') : '';
+  const re = new RegExp(`^${key}=.*$`, 'm');
+  const line = `${key}=${value}`;
+  c = re.test(c) ? c.replace(re, line) : (c.trimEnd() + '\n' + line + '\n');
+  writeFileSync(filePath, c);
 }

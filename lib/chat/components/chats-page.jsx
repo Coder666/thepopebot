@@ -322,6 +322,7 @@ function ChatRow({ chat, onNavigate, onDelete, onStar, onRename }) {
                   'text-muted-foreground hover:text-foreground hover:bg-muted'
                 )}
                 aria-label="Chat options"
+                onClick={(e) => e.stopPropagation()}
               >
                 <MoreHorizontalIcon size={14} />
               </button>
