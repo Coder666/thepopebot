@@ -115,7 +115,7 @@ See `lib/ai/CLAUDE.md` for the provider table and model defaults. Key: `LLM_PROV
 
 ## Workspaces
 
-- **Code Workspaces**: Interactive Docker containers with in-browser terminal. See `lib/code/CLAUDE.md`.
+- **Code Workspaces**: Interactive Docker containers with in-browser terminal. See `lib/code/CLAUDE.md`. The chat bot can create new local Gitea/GitHub repositories and initialize workspaces dynamically using the `create_repository` tool.
 - **Cluster Workspaces**: Groups of Docker containers spawned from role definitions with triggers. See `lib/cluster/CLAUDE.md`.
 
 Both use `lib/tools/docker.js` for container lifecycle via Unix socket API.
